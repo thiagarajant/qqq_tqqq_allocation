@@ -18,6 +18,15 @@ app.use(express.json());
 const dbPath = path.join(__dirname, '../database/market_data.db');
 const db = new sqlite3.Database(dbPath);
 
+// Available thresholds for validation
+const VALID_THRESHOLDS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 25, 30];
+
+function isValidThreshold(threshold) {
+    const numThreshold = parseFloat(threshold);
+    // Accept any reasonable threshold between 0.1% and 50%
+    return !isNaN(numThreshold) && numThreshold >= 0.1 && numThreshold <= 50;
+}
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ 
@@ -30,19 +39,19 @@ app.get('/api/health', (req, res) => {
 // Get available drawdown thresholds
 app.get('/api/thresholds', (req, res) => {
     res.json({
-        thresholds: [2, 5, 10, 15, 20],
-        default: 10,
+        thresholds: VALID_THRESHOLDS,
+        default: 5,
         description: 'Available drawdown percentage thresholds for cycle analysis'
     });
 });
 
 // Get cycles for specific threshold
 app.get('/api/cycles/:threshold', (req, res) => {
-    const threshold = parseInt(req.params.threshold);
+    const threshold = parseFloat(req.params.threshold);
     
-    if (![2, 5, 10, 15, 20].includes(threshold)) {
+    if (!isValidThreshold(threshold)) {
         return res.status(400).json({ 
-            error: 'Invalid threshold. Must be one of: 2, 5, 10, 15, 20' 
+            error: 'Invalid threshold. Must be between 0.1% and 50%' 
         });
     }
 
@@ -203,11 +212,11 @@ function processCycles(rows, threshold) {
 
 // Get summary statistics for a threshold
 app.get('/api/summary/:threshold', (req, res) => {
-    const threshold = parseInt(req.params.threshold);
+    const threshold = parseFloat(req.params.threshold);
     
-    if (![2, 5, 10, 15, 20].includes(threshold)) {
+    if (!isValidThreshold(threshold)) {
         return res.status(400).json({ 
-            error: 'Invalid threshold. Must be one of: 2, 5, 10, 15, 20' 
+            error: 'Invalid threshold. Must be between 0.1% and 50%' 
         });
     }
 
@@ -272,6 +281,11 @@ app.get('/api/summary/:threshold', (req, res) => {
             return Math.ceil((recoveryDate - lowDate) / (1000 * 60 * 60 * 24));
         });
 
+        // Calculate severity breakdown
+        const severeCycles = cycles.filter(c => c.severity === 'severe').length;
+        const moderateCycles = cycles.filter(c => c.severity === 'moderate').length;
+        const mildCycles = cycles.filter(c => c.severity === 'mild').length;
+
         const summary = {
             threshold: threshold,
             totalCycles: cycles.length,
@@ -281,6 +295,10 @@ app.get('/api/summary/:threshold', (req, res) => {
             averageDurationToLow: durations.reduce((a, b) => a + b, 0) / durations.length,
             averageRecoveryTime: recoveries.reduce((a, b) => a + b, 0) / recoveries.length,
             totalDuration: durations.reduce((a, b) => a + b, 0) + recoveries.reduce((a, b) => a + b, 0),
+            // Severity breakdown
+            severeCycles: severeCycles,
+            moderateCycles: moderateCycles,
+            mildCycles: mildCycles,
             dateRange: {
                 start: cycles[0].ath_date,
                 end: cycles[cycles.length - 1].recovery_date
@@ -293,11 +311,11 @@ app.get('/api/summary/:threshold', (req, res) => {
 
 // Get chart data for visualization
 app.get('/api/chart-data/:threshold', (req, res) => {
-    const threshold = parseInt(req.params.threshold);
+    const threshold = parseFloat(req.params.threshold);
     
-    if (![2, 5, 10, 15, 20].includes(threshold)) {
+    if (!isValidThreshold(threshold)) {
         return res.status(400).json({ 
-            error: 'Invalid threshold. Must be one of: 2, 5, 10, 15, 20' 
+            error: 'Invalid threshold. Must be between 0.1% and 50%' 
         });
     }
 
@@ -403,9 +421,9 @@ app.get('/api/chart-data/:threshold', (req, res) => {
 app.post('/api/analyze', (req, res) => {
     const { threshold, startDate, endDate } = req.body;
     
-    if (!threshold || ![2, 5, 10, 15, 20].includes(parseInt(threshold))) {
+    if (!threshold || !isValidThreshold(threshold)) {
         return res.status(400).json({ 
-            error: 'Invalid threshold. Must be one of: 2, 5, 10, 15, 20' 
+            error: 'Invalid threshold. Must be between 0.1% and 50%' 
         });
     }
 
@@ -539,6 +557,217 @@ if (process.env.NODE_ENV === 'production') {
     app.get('*', (req, res) => {
         res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
     });
+}
+
+// Portfolio simulation endpoint
+app.post('/api/simulate', (req, res) => {
+    const { amount, startDate, endDate, threshold } = req.body;
+    
+    if (!amount || !startDate || !endDate || !threshold) {
+        return res.status(400).json({ 
+            error: 'Missing required parameters: amount, startDate, endDate, threshold' 
+        });
+    }
+
+        if (!isValidThreshold(threshold)) {
+        return res.status(400).json({ 
+            error: 'Invalid threshold. Must be between 0.1% and 50%'
+        });
+    }
+
+    // Get QQQ data for the period
+    const qqqQuery = `
+        SELECT date, close 
+        FROM qqq_all_history 
+        WHERE date >= ? AND date <= ? 
+        ORDER BY date
+    `;
+
+    // Get TQQQ data for the period  
+    const tqqqQuery = `
+        SELECT date, close 
+        FROM tqqq_all_history 
+        WHERE date >= ? AND date <= ? 
+        ORDER BY date
+    `;
+
+    db.all(qqqQuery, [startDate, endDate], (err, qqqData) => {
+        if (err) {
+            console.error('Database error:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+
+        if (qqqData.length === 0) {
+            return res.status(400).json({ error: 'No QQQ data found for the specified date range' });
+        }
+
+        db.all(tqqqQuery, [startDate, endDate], (err, tqqqData) => {
+            if (err) {
+                console.error('Database error:', err);
+                return res.status(500).json({ error: 'Database error' });
+            }
+
+            if (tqqqData.length === 0) {
+                return res.status(400).json({ error: 'No TQQQ data found for the specified date range' });
+            }
+
+            try {
+                const simulation = calculatePortfolioSimulation(amount, qqqData, tqqqData, threshold, startDate, endDate);
+                res.json(simulation);
+            } catch (error) {
+                console.error('Simulation error:', error);
+                res.status(500).json({ error: 'Simulation calculation failed' });
+            }
+        });
+    });
+});
+
+function calculatePortfolioSimulation(initialAmount, qqqData, tqqqData, threshold, startDate, endDate) {
+    if (qqqData.length === 0 || tqqqData.length === 0) {
+        throw new Error('Insufficient data for simulation');
+    }
+
+    const startPrice_QQQ = qqqData[0].close;
+    const endPrice_QQQ = qqqData[qqqData.length - 1].close;
+    const startPrice_TQQQ = tqqqData[0].close;
+    const endPrice_TQQQ = tqqqData[tqqqData.length - 1].close;
+
+    // Calculate QQQ only performance
+    const qqqShares = initialAmount / startPrice_QQQ;
+    const qqqFinalValue = qqqShares * endPrice_QQQ;
+    const qqqTotalReturn = qqqFinalValue - initialAmount;
+    const qqqTotalReturnPct = (qqqTotalReturn / initialAmount) * 100;
+
+    // Calculate TQQQ only performance
+    const tqqqShares = initialAmount / startPrice_TQQQ;
+    const tqqqFinalValue = tqqqShares * endPrice_TQQQ;
+    const tqqqTotalReturn = tqqqFinalValue - initialAmount;
+    const tqqqTotalReturnPct = (tqqqTotalReturn / initialAmount) * 100;
+
+    // Calculate time period
+    const startDateObj = new Date(startDate);
+    const endDateObj = new Date(endDate);
+    const durationDays = Math.ceil((endDateObj - startDateObj) / (1000 * 60 * 60 * 24));
+    const durationYears = durationDays / 365.25;
+
+    // Calculate annualized returns
+    const qqqAnnualizedReturn = (Math.pow(qqqFinalValue / initialAmount, 1 / durationYears) - 1) * 100;
+    const tqqqAnnualizedReturn = (Math.pow(tqqqFinalValue / initialAmount, 1 / durationYears) - 1) * 100;
+
+    // Calculate strategy performance (QQQ with TQQQ during drawdowns)
+    let strategyValue = initialAmount;
+    let currentHolding = 'QQQ'; // Start with QQQ
+    let qqqATH = qqqData[0].close;
+    let switches = 0;
+    
+    // Create aligned data arrays
+    const alignedData = [];
+    for (let i = 0; i < qqqData.length; i++) {
+        const qqqEntry = qqqData[i];
+        const tqqqEntry = tqqqData.find(t => t.date === qqqEntry.date);
+        if (tqqqEntry) {
+            alignedData.push({
+                date: qqqEntry.date,
+                qqq_price: qqqEntry.close,
+                tqqq_price: tqqqEntry.close
+            });
+        }
+    }
+
+    if (alignedData.length > 1) {
+        let shares = strategyValue / alignedData[0].qqq_price; // Start with QQQ shares
+        
+        for (let i = 1; i < alignedData.length; i++) {
+            const current = alignedData[i];
+            const previous = alignedData[i - 1];
+            
+            // Update QQQ ATH
+            if (current.qqq_price > qqqATH) {
+                qqqATH = current.qqq_price;
+                
+                // If we're in TQQQ and QQQ hits new ATH, switch back to QQQ
+                if (currentHolding === 'TQQQ') {
+                    strategyValue = shares * current.tqqq_price;
+                    shares = strategyValue / current.qqq_price;
+                    currentHolding = 'QQQ';
+                    switches++;
+                }
+            }
+            
+            // Check for drawdown
+            const drawdown = ((current.qqq_price - qqqATH) / qqqATH) * 100;
+            
+            if (drawdown <= -threshold && currentHolding === 'QQQ') {
+                // Switch from QQQ to TQQQ
+                strategyValue = shares * current.qqq_price;
+                shares = strategyValue / current.tqqq_price;
+                currentHolding = 'TQQQ';
+                switches++;
+            }
+            
+            // Update strategy value based on current holding
+            if (currentHolding === 'QQQ') {
+                strategyValue = shares * current.qqq_price;
+            } else {
+                strategyValue = shares * current.tqqq_price;
+            }
+        }
+        
+        const strategyTotalReturn = strategyValue - initialAmount;
+        const strategyTotalReturnPct = (strategyTotalReturn / initialAmount) * 100;
+        const strategyAnnualizedReturn = (Math.pow(strategyValue / initialAmount, 1 / durationYears) - 1) * 100;
+
+        return {
+            startDate,
+            endDate,
+            initialInvestment: initialAmount,
+            strategy: `QQQ→TQQQ at ${threshold}% drawdown`,
+            
+            // QQQ only results
+            qqqFinalValue: Math.round(qqqFinalValue),
+            qqqTotalReturn: Math.round(qqqTotalReturn),
+            qqqTotalReturnPct: parseFloat(qqqTotalReturnPct.toFixed(2)),
+            qqqAnnualizedReturn: parseFloat(qqqAnnualizedReturn.toFixed(2)),
+            
+            // TQQQ only results
+            tqqqFinalValue: Math.round(tqqqFinalValue),
+            tqqqTotalReturn: Math.round(tqqqTotalReturn),
+            tqqqTotalReturnPct: parseFloat(tqqqTotalReturnPct.toFixed(2)),
+            tqqqAnnualizedReturn: parseFloat(tqqqAnnualizedReturn.toFixed(2)),
+            
+            // Strategy results
+            strategyFinalValue: Math.round(strategyValue),
+            strategyTotalReturn: Math.round(strategyTotalReturn),
+            strategyTotalReturnPct: parseFloat(strategyTotalReturnPct.toFixed(2)),
+            strategyAnnualizedReturn: parseFloat(strategyAnnualizedReturn.toFixed(2)),
+            strategySwitches: switches,
+            
+            // Additional metrics
+            durationDays,
+            durationYears: parseFloat(durationYears.toFixed(2))
+        };
+    } else {
+        // Fallback if no aligned data
+        return {
+            startDate,
+            endDate,
+            initialInvestment: initialAmount,
+            strategy: `QQQ→TQQQ at ${threshold}% drawdown`,
+            
+            qqqFinalValue: Math.round(qqqFinalValue),
+            qqqTotalReturn: Math.round(qqqTotalReturn),
+            qqqTotalReturnPct: parseFloat(qqqTotalReturnPct.toFixed(2)),
+            qqqAnnualizedReturn: parseFloat(qqqAnnualizedReturn.toFixed(2)),
+            
+            tqqqFinalValue: Math.round(tqqqFinalValue),
+            tqqqTotalReturn: Math.round(tqqqTotalReturn),
+            tqqqTotalReturnPct: parseFloat(tqqqTotalReturnPct.toFixed(2)),
+            tqqqAnnualizedReturn: parseFloat(tqqqAnnualizedReturn.toFixed(2)),
+            
+            durationDays,
+            durationYears: parseFloat(durationYears.toFixed(2))
+        };
+    }
 }
 
 // Start server
