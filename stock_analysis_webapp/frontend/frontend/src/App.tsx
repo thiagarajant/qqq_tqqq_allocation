@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import Analysis from './pages/Analysis'
 import Cycles from './pages/Cycles'
 import Charts from './pages/Charts'
+import Simulation from './pages/Simulation'
 import { ThresholdProvider } from './contexts/ThresholdContext'
 import { DataProvider } from './contexts/DataContext'
 
@@ -40,6 +41,7 @@ function App() {
               <Route path="/analysis" element={<Analysis />} />
               <Route path="/cycles" element={<Cycles />} />
               <Route path="/charts" element={<Charts />} />
+              <Route path="/simulation" element={<Simulation />} />
             </Routes>
           </main>
         </div>

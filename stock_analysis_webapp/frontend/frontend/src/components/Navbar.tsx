@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Menu, X, BarChart3, TrendingUp, Activity, Home } from 'lucide-react'
+import { Menu, X, BarChart3, TrendingUp, Activity, Home, Calculator } from 'lucide-react'
 import { useThreshold } from '../contexts/ThresholdContext'
 
 const navigation = [
@@ -8,6 +8,7 @@ const navigation = [
   { name: 'Analysis', href: '/analysis', icon: Activity },
   { name: 'Cycles', href: '/cycles', icon: TrendingUp },
   { name: 'Charts', href: '/charts', icon: BarChart3 },
+  { name: 'Simulation', href: '/simulation', icon: Calculator },
 ]
 
 export default function Navbar() {

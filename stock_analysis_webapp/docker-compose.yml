@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   stock-analysis-app:
-    image: stock-analysis-webapp:charts-fix
+    image: stock-analysis-webapp:refined-thresholds
     container_name: stock-analysis-webapp
     ports:
       - "3000:3000"

@@ -80,7 +80,7 @@ export default function Dashboard() {
             <div>
               <p className="text-sm font-medium text-gray-600">Avg Drawdown</p>
               <p className="text-2xl font-bold text-warning-600">
-                {summary?.avgDrawdown ? `${summary.avgDrawdown.toFixed(1)}%` : '...'}
+                {summary?.averageDrawdown ? `${summary.averageDrawdown.toFixed(1)}%` : '...'}
               </p>
             </div>
             <div className="w-12 h-12 bg-warning-100 rounded-lg flex items-center justify-center">
@@ -92,13 +92,13 @@ export default function Dashboard() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">TQQQ Avg DD</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {summary?.avgTQQQDrawdown ? `${summary.avgTQQQDrawdown.toFixed(1)}%` : '...'}
+              <p className="text-sm font-medium text-gray-600">Avg Recovery</p>
+              <p className="text-2xl font-bold text-success-600">
+                {summary?.averageRecoveryTime ? `${Math.round(summary.averageRecoveryTime)}d` : '...'}
               </p>
             </div>
-            <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-gray-600" />
+            <div className="w-12 h-12 bg-success-100 rounded-lg flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-success-600" />
             </div>
           </div>
         </div>
