@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Print styles for charts */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-break {
+    page-break-before: always;
+  }
+  
+  .chart-container {
+    page-break-inside: avoid;
+  }
+}
+
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;

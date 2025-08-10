@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useThreshold } from '../contexts/ThresholdContext';
 import { useData } from '../contexts/DataContext';
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  LineChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ReferenceLine,
+  Bar
+} from 'recharts';
 
 interface ChartData {
   threshold: number;
@@ -28,9 +42,10 @@ interface ChartData {
 
 const Charts: React.FC = () => {
   const { threshold, setThreshold } = useThreshold();
-  const { data, loading, error } = useData();
+  const { error } = useData();
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [selectedTimeframe, setSelectedTimeframe] = useState<'1Y' | '2Y' | '5Y' | 'ALL'>('1Y');
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (threshold) {
@@ -39,8 +54,10 @@ const Charts: React.FC = () => {
   }, [threshold]);
 
   const fetchChartData = async (thresh: number) => {
+    setIsLoading(true);
+    setChartData(null); // Clear previous data
     try {
-      const response = await fetch(`http://localhost:3001/api/chart-data/${thresh}`);
+      const response = await fetch(`/api/chart-data/${thresh}`);
       if (response.ok) {
         const data = await response.json();
         setChartData(data);
@@ -49,6 +66,8 @@ const Charts: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching chart data:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -90,6 +109,30 @@ const Charts: React.FC = () => {
     return data.filter(item => new Date(item.date) >= cutoffDate);
   };
 
+  const getPerformanceData = (qqqData: Array<{ date: string; close: number }>, tqqqData: Array<{ date: string; close: number }>, timeframe: string) => {
+    const filteredQQQ = getFilteredData(qqqData, timeframe);
+    const filteredTQQQ = getFilteredData(tqqqData, timeframe);
+    
+    if (filteredQQQ.length === 0 || filteredTQQQ.length === 0) return [];
+    
+    const qqqStartPrice = filteredQQQ[0].close;
+    const tqqqStartPrice = filteredTQQQ[0].close;
+    
+    return filteredQQQ.map((qqqItem, index) => {
+      const tqqqItem = filteredTQQQ[index];
+      if (!tqqqItem) return null;
+      
+      const qqqPerformance = ((qqqItem.close - qqqStartPrice) / qqqStartPrice) * 100;
+      const tqqqPerformance = ((tqqqItem.close - tqqqStartPrice) / tqqqStartPrice) * 100;
+      
+      return {
+        date: qqqItem.date,
+        qqq_performance: qqqPerformance,
+        tqqq_performance: tqqqPerformance
+      };
+    }).filter(Boolean);
+  };
+
   const calculatePerformance = (data: Array<{ date: string; close: number }>) => {
     if (data.length < 2) return { change: 0, changePercent: 0 };
     
@@ -101,12 +144,35 @@ const Charts: React.FC = () => {
     return { change, changePercent };
   };
 
-  if (loading) {
+  if (isLoading || !chartData) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-600 mx-auto mb-4"></div>
           <h2 className="text-xl font-semibold text-gray-700">Loading Charts...</h2>
+          <p className="text-gray-500 mt-2">Fetching market data and preparing visualizations</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!chartData.qqqData || !chartData.tqqqData || !chartData.cycles) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-500 mb-4">
+            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">Data Error</h2>
+          <p className="text-gray-500">Unable to load chart data. Please check your connection and try again.</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -157,38 +223,358 @@ const Charts: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Timeframe</label>
-              <select
-                value={selectedTimeframe}
-                onChange={(e) => setSelectedTimeframe(e.target.value as any)}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="1Y">1 Year</option>
-                <option value="2Y">2 Years</option>
-                <option value="5Y">5 Years</option>
-                <option value="ALL">All Time</option>
-              </select>
+            <div className="flex gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Timeframe</label>
+                <select
+                  value={selectedTimeframe}
+                  onChange={(e) => setSelectedTimeframe(e.target.value as any)}
+                  className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="1Y">1 Year</option>
+                  <option value="2Y">2 Years</option>
+                  <option value="5Y">5 Years</option>
+                  <option value="ALL">All Time</option>
+                </select>
+              </div>
+              
+              <div className="flex gap-2 no-print">
+                <button
+                  onClick={() => {
+                    const element = document.createElement('a');
+                    const data = JSON.stringify(chartData, null, 2);
+                    const blob = new Blob([data], { type: 'application/json' });
+                    element.href = URL.createObjectURL(blob);
+                    element.download = `chart_data_${selectedTimeframe}_${new Date().toISOString().split('T')[0]}.json`;
+                    element.click();
+                  }}
+                  className="px-3 py-1 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors flex items-center gap-2 text-sm"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Export
+                </button>
+                
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 00-2-2V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m8-12V5a2 2 0 00-2-2H9a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2z" />
+                  </svg>
+                  Print
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Chart Placeholder */}
+        {/* Interactive Price Charts */}
         {chartData && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Price Chart</h2>
-            <div className="bg-gray-100 rounded-lg p-8 text-center">
-              <div className="text-gray-500 mb-4">
-                <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                <p className="text-lg font-medium">Chart Visualization</p>
-                <p className="text-sm">Interactive chart component will be implemented here</p>
+          <div className="space-y-8 chart-container">
+            {/* QQQ Price Chart */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">QQQ Price Chart</h2>
+              <div className="h-96">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={getFilteredData(chartData.qqqData, selectedTimeframe)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => formatDate(value)}
+                      tick={{ fontSize: 12 }}
+                      stroke="#6b7280"
+                    />
+                    <YAxis 
+                      tickFormatter={(value) => `$${value.toFixed(0)}`}
+                      tick={{ fontSize: 12 }}
+                      stroke="#6b7280"
+                    />
+                    <Tooltip 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+                              <p className="font-medium text-gray-900">{formatDate(label)}</p>
+                              <p className="text-blue-600">QQQ: ${payload[0].value?.toFixed(2)}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="close" 
+                      stroke="#2563eb" 
+                      fill="#dbeafe" 
+                      strokeWidth={2}
+                      fillOpacity={0.3}
+                    />
+                    {/* Cycle Annotations */}
+                    {chartData.cycles
+                      .filter(cycle => {
+                        const cycleDate = new Date(cycle.ath_date);
+                        const now = new Date();
+                        let cutoffDate = new Date();
+                        switch (selectedTimeframe) {
+                          case '1Y': cutoffDate.setFullYear(now.getFullYear() - 1); break;
+                          case '2Y': cutoffDate.setFullYear(now.getFullYear() - 2); break;
+                          case '5Y': cutoffDate.setFullYear(now.getFullYear() - 5); break;
+                          case 'ALL': return true;
+                        }
+                        return cycleDate >= cutoffDate;
+                      })
+                      .map((cycle, index) => (
+                        <ReferenceLine
+                          key={`qqq-${index}`}
+                          x={cycle.ath_date}
+                          stroke="#ef4444"
+                          strokeDasharray="3 3"
+                          strokeWidth={2}
+                          label={{
+                            value: `ATH: $${cycle.ath_price.toFixed(2)}`,
+                            position: 'top',
+                            fill: '#ef4444',
+                            fontSize: 10
+                          }}
+                        />
+                      ))}
+                    
+                    {/* Chart Legend */}
+                    <Legend 
+                      content={({ payload }) => (
+                        <div className="flex justify-center mt-4 space-x-6">
+                          {payload?.map((entry, index) => (
+                            <div key={index} className="flex items-center space-x-2">
+                              <div 
+                                className="w-3 h-3 rounded-full" 
+                                style={{ backgroundColor: entry.color }}
+                              ></div>
+                              <span className="text-sm text-gray-600">{entry.value}</span>
+                            </div>
+                          ))}
+                          <div className="flex items-center space-x-2">
+                            <div className="w-3 h-3 border-2 border-red-500 border-dashed"></div>
+                            <span className="text-sm text-gray-600">ATH Markers</span>
+                          </div>
+                        </div>
+                      )}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
               </div>
-              <div className="text-xs text-gray-400">
-                <p>QQQ Data: {chartData.metadata.qqqPoints.toLocaleString()} points</p>
-                <p>TQQQ Data: {chartData.metadata.tqqqPoints.toLocaleString()} points</p>
-                <p>Cycles: {chartData.metadata.cycles}</p>
+            </div>
+
+            {/* TQQQ Price Chart */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">TQQQ Price Chart</h2>
+              <div className="h-96">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={getFilteredData(chartData.tqqqData, selectedTimeframe)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => formatDate(value)}
+                      tick={{ fontSize: 12 }}
+                      stroke="#6b7280"
+                    />
+                    <YAxis 
+                      tickFormatter={(value) => `$${value.toFixed(0)}`}
+                      tick={{ fontSize: 12 }}
+                      stroke="#6b7280"
+                    />
+                    <Tooltip 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+                              <p className="font-medium text-gray-900">{formatDate(label)}</p>
+                              <p className="text-green-600">TQQQ: ${payload[0].value?.toFixed(2)}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="close" 
+                      stroke="#16a34a" 
+                      fill="#dcfce7" 
+                      strokeWidth={2}
+                      fillOpacity={0.3}
+                    />
+                    {/* Cycle Annotations */}
+                    {chartData.cycles
+                      .filter(cycle => {
+                        const cycleDate = new Date(cycle.ath_date);
+                        const now = new Date();
+                        let cutoffDate = new Date();
+                        switch (selectedTimeframe) {
+                          case '1Y': cutoffDate.setFullYear(now.getFullYear() - 1); break;
+                          case '2Y': cutoffDate.setFullYear(now.getFullYear() - 2); break;
+                          case '5Y': cutoffDate.setFullYear(now.getFullYear() - 5); break;
+                          case 'ALL': return true;
+                        }
+                        return cycleDate >= cutoffDate;
+                      })
+                      .map((cycle, index) => (
+                        <ReferenceLine
+                          key={`tqqq-${index}`}
+                          x={cycle.ath_date}
+                          stroke="#ef4444"
+                          strokeDasharray="3 3"
+                          strokeWidth={2}
+                          label={{
+                            value: `ATH: $${cycle.ath_price.toFixed(2)}`,
+                            position: 'top',
+                            fill: '#ef4444',
+                            fontSize: 10
+                          }}
+                        />
+                      ))}
+                    
+                    {/* Chart Legend */}
+                    <Legend 
+                      content={({ payload }) => (
+                        <div className="flex justify-center mt-4 space-x-6">
+                          {payload?.map((entry, index) => (
+                            <div key={index} className="flex items-center space-x-2">
+                              <div 
+                                className="w-3 h-3 rounded-full" 
+                                style={{ backgroundColor: entry.color }}
+                              ></div>
+                              <span className="text-sm text-gray-600">{entry.value}</span>
+                            </div>
+                          ))}
+                          <div className="flex items-center space-x-2">
+                            <div className="w-3 h-3 border-2 border-red-500 border-dashed"></div>
+                            <span className="text-sm text-gray-600">ATH Markers</span>
+                          </div>
+                        </div>
+                      )}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Combined Performance Chart */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Performance Comparison</h2>
+              <div className="h-96">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={getPerformanceData(chartData.qqqData, chartData.tqqqData, selectedTimeframe)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => formatDate(value)}
+                      tick={{ fontSize: 12 }}
+                      stroke="#6b7280"
+                    />
+                    <YAxis 
+                      tickFormatter={(value) => `${value.toFixed(0)}%`}
+                      tick={{ fontSize: 12 }}
+                      stroke="#6b7280"
+                    />
+                    <Tooltip 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+                              <p className="font-medium text-gray-900">{formatDate(label)}</p>
+                              {payload.map((entry, index) => (
+                                <p key={index} style={{ color: entry.color }}>
+                                  {entry.name}: {entry.value?.toFixed(2)}%
+                                </p>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="qqq_performance" 
+                      stroke="#2563eb" 
+                      strokeWidth={2}
+                      dot={false}
+                      name="QQQ Performance"
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="tqqq_performance" 
+                      stroke="#16a34a" 
+                      strokeWidth={2}
+                      dot={false}
+                      name="TQQQ Performance"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Cycle Timeline Chart */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Cycle Timeline</h2>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={chartData.cycles
+                    .filter(cycle => {
+                      const cycleDate = new Date(cycle.ath_date);
+                      const now = new Date();
+                      let cutoffDate = new Date();
+                      switch (selectedTimeframe) {
+                        case '1Y': cutoffDate.setFullYear(now.getFullYear() - 1); break;
+                        case '2Y': cutoffDate.setFullYear(now.getFullYear() - 2); break;
+                        case '5Y': cutoffDate.setFullYear(now.getFullYear() - 5); break;
+                        case 'ALL': return true;
+                      }
+                      return cycleDate >= cutoffDate;
+                    })
+                    .map((cycle, index) => ({
+                      cycle: index + 1,
+                      ath_date: cycle.ath_date,
+                      drawdown: Math.abs(cycle.drawdown_pct),
+                      severity: cycle.drawdown_pct >= 15 ? 'severe' : cycle.drawdown_pct >= 10 ? 'moderate' : 'mild'
+                    }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="ath_date" 
+                      tickFormatter={(value) => formatDate(value)}
+                      tick={{ fontSize: 10 }}
+                      stroke="#6b7280"
+                    />
+                    <YAxis 
+                      tickFormatter={(value) => `${value.toFixed(0)}%`}
+                      tick={{ fontSize: 10 }}
+                      stroke="#6b7280"
+                    />
+                    <Tooltip 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+                              <p className="font-medium text-gray-900">{formatDate(label)}</p>
+                              <p className="text-red-600">Drawdown: {payload[0].value?.toFixed(1)}%</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar 
+                      dataKey="drawdown" 
+                      fill="#ef4444" 
+                      radius={[2, 2, 0, 0]}
+                      opacity={0.8}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
               </div>
             </div>
           </div>
@@ -284,7 +670,7 @@ const Charts: React.FC = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {chartData.cycles.map((cycle, index) => {
                     const athDate = new Date(cycle.ath_date);
-                    const lowDate = new Date(cycle.low_date);
+                    // const lowDate = new Date(cycle.low_date);
                     const recoveryDate = new Date(cycle.recovery_date);
                     const isInTimeframe = (() => {
                       const now = new Date();
@@ -340,16 +726,71 @@ const Charts: React.FC = () => {
           </div>
         )}
 
-        {/* Chart Implementation Note */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-2">Chart Implementation</h3>
-          <p className="text-blue-800 text-sm">
-            This page is ready for chart library integration. Recommended libraries include:
-            <br />• <strong>Chart.js</strong> - Lightweight and easy to use
-            <br />• <strong>D3.js</strong> - Powerful and customizable
-            <br />• <strong>Recharts</strong> - React-specific charting library
-            <br />• <strong>Apache ECharts</strong> - Feature-rich and performant
-          </p>
+        {/* Chart Statistics Summary */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 chart-container">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Data Summary</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">QQQ Data Points:</span>
+                <span className="font-medium">{chartData.metadata.qqqPoints.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">TQQQ Data Points:</span>
+                <span className="font-medium">{chartData.metadata.tqqqPoints.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Total Cycles:</span>
+                <span className="font-medium">{chartData.metadata.cycles}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Current Status</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">QQQ Current:</span>
+                <span className="font-medium text-blue-600">
+                  ${chartData.qqqData[chartData.qqqData.length - 1]?.close?.toFixed(2) || 'N/A'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">TQQQ Current:</span>
+                <span className="font-medium text-green-600">
+                  ${chartData.tqqqData[chartData.tqqqData.length - 1]?.close?.toFixed(2) || 'N/A'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Last Update:</span>
+                <span className="font-medium">
+                  {chartData.qqqData[chartData.qqqData.length - 1]?.date || 'N/A'}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Chart Features</h3>
+            <div className="space-y-2 text-sm text-green-700">
+              <div className="flex items-center">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                Interactive tooltips
+              </div>
+              <div className="flex items-center">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                Cycle annotations
+              </div>
+              <div className="flex items-center">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                Performance comparison
+              </div>
+              <div className="flex items-center">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                Timeframe filtering
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

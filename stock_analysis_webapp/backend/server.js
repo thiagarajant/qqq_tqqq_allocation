@@ -101,6 +101,7 @@ function processCycles(rows, threshold) {
     let currentATH = null;
     let currentATHDate = null;
     let currentATHIndex = null;
+    let cycleNumber = 1;
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -116,15 +117,33 @@ function processCycles(rows, threshold) {
                     const lowPoint = periodData.reduce((min, r) => 
                         r.close < min.close ? r : min, periodData[0]);
                     
+                    // Determine severity based on drawdown percentage
+                    let severity = 'mild';
+                    if (Math.abs(lowPoint.drawdown) >= 20) {
+                        severity = 'severe';
+                    } else if (Math.abs(lowPoint.drawdown) >= 10) {
+                        severity = 'moderate';
+                    }
+                    
                     cycles.push({
+                        cycle_number: cycleNumber++,
+                        severity: severity,
+                        qqq_ath_date: currentATHDate,
+                        qqq_ath_price: currentATH,
+                        qqq_low_date: lowPoint.date,
+                        qqq_low_price: lowPoint.close,
+                        qqq_drawdown_pct: lowPoint.drawdown,
+                        qqq_recovery_date: row.date,
+                        qqq_recovery_price: row.close,
+                        threshold: threshold,
+                        // Legacy fields for backward compatibility
                         ath_date: currentATHDate,
                         ath_price: currentATH,
                         low_date: lowPoint.date,
                         low_price: lowPoint.close,
                         drawdown_pct: lowPoint.drawdown,
                         recovery_date: row.date,
-                        recovery_price: row.close,
-                        threshold: threshold
+                        recovery_price: row.close
                     });
                 }
             }
@@ -132,6 +151,50 @@ function processCycles(rows, threshold) {
             currentATH = row.close;
             currentATHDate = row.date;
             currentATHIndex = i;
+        }
+    }
+
+    // Handle the last period if it ended in a drawdown
+    if (currentATH !== null && currentATHIndex !== null) {
+        const periodData = rows.slice(currentATHIndex);
+        const minDrawdown = Math.min(...periodData.map(r => r.drawdown));
+        
+        if (minDrawdown < -threshold) {
+            const lowPoint = periodData.reduce((min, r) => 
+                r.close < min.close ? r : min, periodData[0]);
+            
+            // Check if recovery happened
+            const recoveryPoint = periodData.find(r => 
+                r.date > lowPoint.date && r.close >= currentATH);
+            
+            // Determine severity based on drawdown percentage
+            let severity = 'mild';
+            if (Math.abs(lowPoint.drawdown) >= 20) {
+                severity = 'severe';
+            } else if (Math.abs(lowPoint.drawdown) >= 10) {
+                severity = 'moderate';
+            }
+            
+            cycles.push({
+                cycle_number: cycleNumber++,
+                severity: severity,
+                qqq_ath_date: currentATHDate,
+                qqq_ath_price: currentATH,
+                qqq_low_date: lowPoint.date,
+                qqq_low_price: lowPoint.close,
+                qqq_drawdown_pct: lowPoint.drawdown,
+                qqq_recovery_date: recoveryPoint ? recoveryPoint.date : null,
+                qqq_recovery_price: recoveryPoint ? recoveryPoint.close : null,
+                threshold: threshold,
+                // Legacy fields for backward compatibility
+                ath_date: currentATHDate,
+                ath_price: currentATH,
+                low_date: lowPoint.date,
+                low_price: lowPoint.close,
+                drawdown_pct: lowPoint.drawdown,
+                recovery_date: recoveryPoint ? recoveryPoint.date : null,
+                recovery_price: recoveryPoint ? recoveryPoint.close : null
+            });
         }
     }
 
@@ -407,7 +470,69 @@ app.post('/api/analyze', (req, res) => {
     });
 });
 
-// Serve static files in production
+// Get market data for QQQ and TQQQ
+app.get('/api/market-data', (req, res) => {
+    const { limit = 100, startDate, endDate } = req.query;
+    
+    let dateFilter = '';
+    const params = [];
+    
+    if (startDate && endDate) {
+        dateFilter = 'WHERE date BETWEEN ? AND ?';
+        params.push(startDate, endDate);
+    }
+    
+    // Get QQQ data
+    const qqqQuery = `
+        SELECT date, close, volume 
+        FROM qqq_all_history 
+        ${dateFilter}
+        ORDER BY date DESC 
+        LIMIT ${parseInt(limit)}
+    `;
+    
+    // Get TQQQ data
+    const tqqqQuery = `
+        SELECT date, close, volume 
+        FROM tqqq_all_history 
+        ${dateFilter}
+        ORDER BY date DESC 
+        LIMIT ${parseInt(limit)}
+    `;
+    
+    db.all(qqqQuery, params, (err, qqqRows) => {
+        if (err) {
+            console.error('QQQ database error:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+        
+        db.all(tqqqQuery, params, (err, tqqqRows) => {
+            if (err) {
+                console.error('TQQQ database error:', err);
+                return res.status(500).json({ error: 'Database error' });
+            }
+            
+            res.json({
+                qqq_data: qqqRows,
+                tqqq_data: tqqqRows,
+                metadata: {
+                    qqq_count: qqqRows.length,
+                    tqqq_count: tqqqRows.length,
+                    limit: parseInt(limit),
+                    dateRange: { startDate, endDate }
+                }
+            });
+        });
+    });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// Serve static files in production (must be last to not interfere with API routes)
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, '../frontend/dist')));
     
@@ -415,12 +540,6 @@ if (process.env.NODE_ENV === 'production') {
         res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
     });
 }
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ error: 'Something went wrong!' });
-});
 
 // Start server
 app.listen(PORT, () => {

@@ -1,10 +1,10 @@
 import { useEffect } from 'react'
-import { TrendingUp, TrendingDown, Activity, BarChart3, Clock, AlertTriangle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Activity, BarChart3, AlertTriangle } from 'lucide-react'
 import { useThreshold } from '../contexts/ThresholdContext'
 import { useData } from '../contexts/DataContext'
 
 export default function Dashboard() {
-  const { threshold, availableThresholds } = useThreshold()
+  const { threshold, availableThresholds, setThreshold } = useThreshold()
   const { summary, fetchSummary } = useData()
 
   useEffect(() => {
@@ -15,14 +15,14 @@ export default function Dashboard() {
     return availableThresholds.find(t => t.value === threshold) || availableThresholds[2]
   }
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case 'severe': return 'danger'
-      case 'moderate': return 'warning'
-      case 'mild': return 'success'
-      default: return 'info'
-    }
-  }
+  // const getSeverityColor = (severity: string) => {
+  //   switch (severity.toLowerCase()) {
+  //     case 'severe': return 'danger'
+  //     case 'moderate': return 'warning'
+  //     case 'mild': return 'success'
+  //     default: return 'info'
+  //   }
+  // }
 
   const getSeverityIcon = (severity: string) => {
     switch (severity.toLowerCase()) {
@@ -180,6 +180,7 @@ export default function Dashboard() {
           {availableThresholds.map((t) => (
             <span
               key={t.value}
+              onClick={() => setThreshold(t.value)}
               className={`badge cursor-pointer transition-colors ${
                 t.value === threshold
                   ? 'badge-info'

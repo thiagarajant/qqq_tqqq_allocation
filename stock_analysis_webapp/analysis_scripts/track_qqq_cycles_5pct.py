@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-DB_PATH = Path("../market_data.db")
+DB_PATH = Path("../../market_data.db")
 
 def load_qqq_data():
     """Load QQQ close prices from database"""
