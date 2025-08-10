@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
 
 interface CycleData {
   cycle_number: number
@@ -45,7 +45,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchCycles = async (threshold: number) => {
+  const fetchCycles = useCallback(async (threshold: number) => {
     setIsLoading(true)
     setError(null)
     try {
@@ -58,9 +58,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
-  const fetchSummary = async (threshold: number) => {
+  const fetchSummary = useCallback(async (threshold: number) => {
     setIsLoading(true)
     setError(null)
     try {
@@ -73,7 +73,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   const clearError = () => setError(null)
 

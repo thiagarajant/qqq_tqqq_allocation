@@ -22,9 +22,10 @@ interface AnalysisData {
 
 const Analysis: React.FC = () => {
   const { threshold, setThreshold } = useThreshold();
-  const { data, loading, error } = useData();
+  const { error } = useData();
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (threshold) {
@@ -33,16 +34,24 @@ const Analysis: React.FC = () => {
   }, [threshold]);
 
   const fetchAnalysisData = async (thresh: number) => {
+    setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/cycles/${thresh}`);
+      const response = await fetch(`/api/cycles/${thresh}`);
       if (response.ok) {
         const data = await response.json();
-        setAnalysisData(data);
+        setAnalysisData({
+          threshold: data.threshold,
+          totalCycles: data.totalCycles,
+          cycles: data.cycles,
+          dataPoints: data.dataPoints
+        });
       } else {
         console.error('Failed to fetch analysis data');
       }
     } catch (err) {
       console.error('Error fetching analysis data:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -69,7 +78,7 @@ const Analysis: React.FC = () => {
     return diffDays;
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">

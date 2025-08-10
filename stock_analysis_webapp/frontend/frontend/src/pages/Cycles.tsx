@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Download, Filter, Search, Calendar, DollarSign, TrendingDown } from 'lucide-react'
+import { Download, Search, TrendingDown } from 'lucide-react'
 import { useThreshold } from '../contexts/ThresholdContext'
 import { useData } from '../contexts/DataContext'
 
 export default function Cycles() {
-  const { threshold } = useThreshold()
+  const { threshold, availableThresholds, setThreshold } = useThreshold()
   const { cycles, fetchCycles, isLoading, error } = useData()
   const [searchTerm, setSearchTerm] = useState('')
   const [severityFilter, setSeverityFilter] = useState('all')
@@ -135,6 +135,26 @@ export default function Cycles() {
         <p className="text-gray-600 text-lg">
           {threshold}%+ threshold • {cycles.length} total cycles
         </p>
+      </div>
+
+      {/* Threshold Selector */}
+      <div className="card mb-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Threshold</h3>
+        <div className="flex flex-wrap gap-2">
+          {availableThresholds.map((t) => (
+            <button
+              key={t.value}
+              onClick={() => setThreshold(t.value)}
+              className={`badge cursor-pointer transition-colors ${
+                t.value === threshold
+                  ? 'badge-info'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Controls */}

@@ -1,0 +1,142 @@
+# Docker Testing Configuration for Stock Analysis Web Application
+
+# Test Environment Configuration
+test_environment:
+  app_url: "http://localhost:3000"
+  timeout_seconds: 30
+  retry_interval_seconds: 5
+  max_retries: 6
+
+# Health Check Configuration
+health_checks:
+  endpoint: "/api/health"
+  expected_status: 200
+  response_time_threshold_ms: 1000
+
+# API Endpoints to Test
+api_endpoints:
+  - name: "Cycles Data"
+    path: "/api/cycles"
+    method: "GET"
+    expected_status: 200
+    required_fields:
+      - "ath_date"
+      - "ath_price"
+      - "recovery_date"
+      - "recovery_price"
+      - "drawdown_percentage"
+      - "recovery_days"
+  
+  - name: "Market Data"
+    path: "/api/market-data"
+    method: "GET"
+    expected_status: 200
+    required_fields:
+      qqq_data:
+        - "date"
+        - "close"
+        - "volume"
+      tqqq_data:
+        - "date"
+        - "close"
+        - "volume"
+
+# Frontend Tests
+frontend_tests:
+  main_page:
+    expected_status: 200
+    content_checks:
+      - "react"
+      - "root"
+      - "stock"
+  
+  navigation:
+    routes_to_check:
+      - "/"
+      - "/dashboard"
+      - "/cycles"
+      - "/charts"
+
+# Performance Thresholds
+performance_thresholds:
+  api_response_time:
+    excellent: 1000    # ms
+    good: 2000         # ms
+    acceptable: 5000   # ms
+  
+  container_startup_time:
+    max_seconds: 60
+  
+  memory_usage:
+    max_mb: 512
+  
+  cpu_usage:
+    max_percent: 80
+
+# Data Integrity Tests
+data_integrity:
+  min_cycles_count: 1
+  min_market_data_points: 100
+  date_format: "YYYY-MM-DD"
+  price_precision: 2
+  
+  validation_rules:
+    - "All dates should be valid ISO format"
+    - "All prices should be positive numbers"
+    - "Recovery dates should be after ATH dates"
+    - "Drawdown percentages should be negative"
+
+# Container Health Tests
+container_health:
+  expected_status: "healthy"
+  max_restart_count: 3
+  log_error_threshold: 5
+  
+  resource_limits:
+    memory: "1GB"
+    cpu: "2.0"
+    disk: "100MB"
+
+# Test Scenarios
+test_scenarios:
+  smoke_test:
+    description: "Basic functionality test"
+    tests:
+      - "health_check"
+      - "api_basic"
+      - "frontend_basic"
+  
+  integration_test:
+    description: "Full integration test"
+    tests:
+      - "health_check"
+      - "api_endpoints"
+      - "frontend_navigation"
+      - "data_integrity"
+      - "performance"
+  
+  stress_test:
+    description: "Performance under load"
+    tests:
+      - "concurrent_requests"
+      - "memory_usage"
+      - "response_time_consistency"
+  
+  regression_test:
+    description: "Ensure no regressions"
+    tests:
+      - "all_tests"
+      - "compare_with_baseline"
+
+# Test Reporting
+test_reporting:
+  output_format: "console"
+  save_logs: true
+  log_directory: "./test-logs"
+  generate_report: true
+  report_format: "markdown"
+  
+  notifications:
+    email: false
+    slack: false
+    console: true

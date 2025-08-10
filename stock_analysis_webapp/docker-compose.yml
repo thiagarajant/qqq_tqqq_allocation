@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  stock-analysis-app:
+    image: stock-analysis-webapp:charts-fix
+    container_name: stock-analysis-webapp
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount database for persistence
+      - ./database:/app/database:ro
+      # Mount logs directory if needed
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - stock-analysis-network
+
+  # Development service (optional)
+  stock-analysis-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    container_name: stock-analysis-dev
+    ports:
+      - "3001:3000"
+      - "5173:5173"
+    volumes:
+      # Mount source code for hot reloading
+      - .:/app
+      - /app/node_modules
+      - /app/backend/node_modules
+      - /app/frontend/node_modules
+      - ./database:/app/database:ro
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+    command: npm run dev
+    profiles:
+      - dev
+    networks:
+      - stock-analysis-network
+
+networks:
+  stock-analysis-network:
+    driver: bridge
+
+volumes:
+  logs:
