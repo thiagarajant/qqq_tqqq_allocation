@@ -1,0 +1,11 @@
+metric,value,description
+Total Cycles,29,Total number of QQQ drawdown cycles >5%
+Cycles with TQQQ Data,18,Cycles where TQQQ data was available
+Moderate Cycles,14,Cycles with moderate drawdowns
+Mild Cycles,10,Cycles with mild drawdowns
+Severe Cycles,5,Cycles with severe drawdowns
+QQQ Max Drawdown,-83.0%,Largest QQQ drawdown (Cycle 11)
+QQQ Avg Drawdown,-14.9%,Average QQQ drawdown across all cycles
+TQQQ Max Drawdown,-80.2%,Largest TQQQ drawdown (Cycle 25)
+TQQQ Avg Drawdown,-36.5%,Average TQQQ drawdown across cycles with data
+Avg Leverage Ratio,2.8x,Average TQQQ/QQQ drawdown ratio
