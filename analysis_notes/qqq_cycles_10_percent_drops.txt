@@ -1,0 +1,164 @@
+Loading QQQ data and analyzing price cycles...
+Loaded 6,645 QQQ records from 1999-03-10 to 2025-08-08
+Found 431 all-time high points
+Found 19 drawdown periods > 10%
+
+================================================================================
+QQQ CYCLE ANALYSIS: All-Time Highs and >10% Drawdowns
+================================================================================
+
+Total cycles identified: 19
+
+--- Cycle 1 ---
+All-Time High: $47.31 on 1999-04-09
+Low Point:     $41.99 on 1999-04-19
+Recovery:      $47.98 on 1999-04-26
+Drawdown:      -11.2%
+Duration:      10 days to low, 7 days to recovery (17 total)
+Price Change:  -11.2% to low, +14.3% to recovery
+
+--- Cycle 2 ---
+All-Time High: $47.98 on 1999-04-26
+Low Point:     $42.26 on 1999-05-25
+Recovery:      $48.08 on 1999-06-21
+Drawdown:      -11.9%
+Duration:      29 days to low, 27 days to recovery (56 total)
+Price Change:  -11.9% to low, +13.8% to recovery
+
+--- Cycle 3 ---
+All-Time High: $52.04 on 1999-07-16
+Low Point:     $45.90 on 1999-08-10
+Recovery:      $52.14 on 1999-08-25
+Drawdown:      -11.8%
+Duration:      25 days to low, 15 days to recovery (40 total)
+Price Change:  -11.8% to low, +13.6% to recovery
+
+--- Cycle 4 ---
+All-Time High: $80.34 on 2000-01-03
+Low Point:     $67.91 on 2000-01-06
+Recovery:      $81.39 on 2000-01-19
+Drawdown:      -15.5%
+Duration:      3 days to low, 13 days to recovery (16 total)
+Price Change:  -15.5% to low, +19.8% to recovery
+
+--- Cycle 5 ---
+All-Time High: $81.60 on 2000-01-21
+Low Point:     $72.91 on 2000-01-28
+Recovery:      $81.82 on 2000-02-03
+Drawdown:      -10.7%
+Duration:      7 days to low, 6 days to recovery (13 total)
+Price Change:  -10.7% to low, +12.2% to recovery
+
+--- Cycle 6 ---
+All-Time High: $97.49 on 2000-03-09
+Low Point:     $87.22 on 2000-03-15
+Recovery:      $98.36 on 2000-03-23
+Drawdown:      -10.5%
+Duration:      6 days to low, 8 days to recovery (14 total)
+Price Change:  -10.5% to low, +12.8% to recovery
+
+--- Cycle 7 ---
+All-Time High: $99.82 on 2000-03-27
+Low Point:     $17.01 on 2002-10-09
+Recovery:      $100.05 on 2015-02-20
+Drawdown:      -83.0%
+Duration:      926 days to low, 4517 days to recovery (5443 total)
+Price Change:  -83.0% to low, +488.3% to recovery
+
+--- Cycle 8 ---
+All-Time High: $105.69 on 2015-07-20
+Low Point:     $90.96 on 2015-08-25
+Recovery:      $105.96 on 2015-10-28
+Drawdown:      -13.9%
+Duration:      36 days to low, 64 days to recovery (100 total)
+Price Change:  -13.9% to low, +16.5% to recovery
+
+--- Cycle 9 ---
+All-Time High: $107.04 on 2015-12-01
+Low Point:     $89.81 on 2016-02-09
+Recovery:      $107.44 on 2016-07-27
+Drawdown:      -16.1%
+Duration:      70 days to low, 169 days to recovery (239 total)
+Price Change:  -16.1% to low, +19.6% to recovery
+
+--- Cycle 10 ---
+All-Time High: $162.63 on 2018-01-26
+Low Point:     $146.02 on 2018-02-08
+Recovery:      $164.75 on 2018-03-09
+Drawdown:      -10.2%
+Duration:      13 days to low, 29 days to recovery (42 total)
+Price Change:  -10.2% to low, +12.8% to recovery
+
+--- Cycle 11 ---
+All-Time High: $165.62 on 2018-03-12
+Low Point:     $148.19 on 2018-04-02
+Recovery:      $166.12 on 2018-06-04
+Drawdown:      -10.5%
+Duration:      21 days to low, 63 days to recovery (84 total)
+Price Change:  -10.5% to low, +12.1% to recovery
+
+--- Cycle 12 ---
+All-Time High: $178.35 on 2018-08-29
+Low Point:     $137.69 on 2018-12-24
+Recovery:      $178.63 on 2019-04-12
+Drawdown:      -22.8%
+Duration:      117 days to low, 109 days to recovery (226 total)
+Price Change:  -22.8% to low, +29.7% to recovery
+
+--- Cycle 13 ---
+All-Time High: $183.69 on 2019-05-03
+Low Point:     $163.53 on 2019-06-03
+Recovery:      $184.42 on 2019-07-03
+Drawdown:      -11.0%
+Duration:      31 days to low, 30 days to recovery (61 total)
+Price Change:  -11.0% to low, +12.8% to recovery
+
+--- Cycle 14 ---
+All-Time High: $229.25 on 2020-02-19
+Low Point:     $163.79 on 2020-03-16
+Recovery:      $229.48 on 2020-06-03
+Drawdown:      -28.6%
+Duration:      26 days to low, 79 days to recovery (105 total)
+Price Change:  -28.6% to low, +40.1% to recovery
+
+--- Cycle 15 ---
+All-Time High: $294.06 on 2020-09-02
+Low Point:     $256.94 on 2020-09-23
+Recovery:      $295.17 on 2020-12-01
+Drawdown:      -12.6%
+Duration:      21 days to low, 69 days to recovery (90 total)
+Price Change:  -12.6% to low, +14.9% to recovery
+
+--- Cycle 16 ---
+All-Time High: $327.85 on 2021-02-12
+Low Point:     $292.27 on 2021-03-08
+Recovery:      $328.90 on 2021-04-09
+Drawdown:      -10.9%
+Duration:      24 days to low, 32 days to recovery (56 total)
+Price Change:  -10.9% to low, +12.5% to recovery
+
+--- Cycle 17 ---
+All-Time High: $395.06 on 2021-12-27
+Low Point:     $256.31 on 2022-11-03
+Recovery:      $399.96 on 2023-12-13
+Drawdown:      -35.1%
+Duration:      311 days to low, 405 days to recovery (716 total)
+Price Change:  -35.1% to low, +56.0% to recovery
+
+--- Cycle 18 ---
+All-Time High: $500.70 on 2024-07-10
+Low Point:     $432.82 on 2024-08-07
+Recovery:      $504.01 on 2024-11-06
+Drawdown:      -13.6%
+Duration:      28 days to low, 91 days to recovery (119 total)
+Price Change:  -13.6% to low, +16.5% to recovery
+
+--- Cycle 19 ---
+All-Time High: $538.72 on 2025-02-19
+Low Point:     $416.06 on 2025-04-08
+Recovery:      $539.78 on 2025-06-24
+Drawdown:      -22.8%
+Duration:      48 days to low, 77 days to recovery (125 total)
+Price Change:  -22.8% to low, +29.7% to recovery
+
+
