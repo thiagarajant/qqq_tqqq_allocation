@@ -2,12 +2,12 @@ import { Routes, Route } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import Navbar from './components/Navbar'
 import Dashboard from './pages/Dashboard'
-import Analysis from './pages/Analysis'
 import Cycles from './pages/Cycles'
 import Charts from './pages/Charts'
 import Simulation from './pages/Simulation'
 import { ThresholdProvider } from './contexts/ThresholdContext'
 import { DataProvider } from './contexts/DataContext'
+import { ETFProvider } from './contexts/ETFContext'
 
 function App() {
   const [isLoading, setIsLoading] = useState(true)
@@ -31,22 +31,23 @@ function App() {
   }
 
   return (
-    <ThresholdProvider>
-      <DataProvider>
-        <div className="min-h-screen bg-gray-50">
-          <Navbar />
-          <main className="pt-16">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/analysis" element={<Analysis />} />
-              <Route path="/cycles" element={<Cycles />} />
-              <Route path="/charts" element={<Charts />} />
-              <Route path="/simulation" element={<Simulation />} />
-            </Routes>
-          </main>
-        </div>
-      </DataProvider>
-    </ThresholdProvider>
+    <ETFProvider>
+      <ThresholdProvider>
+        <DataProvider>
+          <div className="min-h-screen bg-gray-50">
+            <Navbar />
+            <main className="pt-16">
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/cycles" element={<Cycles />} />
+                <Route path="/charts" element={<Charts />} />
+                <Route path="/simulation" element={<Simulation />} />
+              </Routes>
+            </main>
+          </div>
+        </DataProvider>
+      </ThresholdProvider>
+    </ETFProvider>
   )
 }
 

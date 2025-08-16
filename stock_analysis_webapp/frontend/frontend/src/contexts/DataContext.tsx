@@ -1,19 +1,20 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react'
+import { useETF } from './ETFContext'
+import { useThreshold } from './ThresholdContext'
 
 interface CycleData {
   cycle_number: number
   severity: string
-  qqq_ath_date: string
-  qqq_ath_price: number
-  qqq_low_date: string
-  qqq_low_price: number
-  qqq_recovery_date: string
-  qqq_recovery_price: number
-  qqq_drawdown_pct: number
-  tqqq_ath_price?: number
-  tqqq_low_price?: number
-  tqqq_recovery_price?: number
-  tqqq_drawdown_pct?: number
+  // Dynamic fields based on selected ETF
+  ath_date: string
+  ath_price: number
+  low_date: string
+  low_price: number
+  recovery_date: string | null
+  recovery_price: number | null
+  drawdown_pct: number
+  // Keep original fields for compatibility
+  [key: string]: any
 }
 
 interface SummaryData {
@@ -40,6 +41,8 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined)
 
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { selectedETF } = useETF()
+  const { threshold } = useThreshold()
   const [cycles, setCycles] = useState<CycleData[]>([])
   const [summary, setSummary] = useState<SummaryData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -49,7 +52,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch(`/api/cycles/${threshold}`)
+      const response = await fetch(`/api/cycles/${threshold}/${selectedETF}`)
       if (!response.ok) throw new Error('Failed to fetch cycles data')
       const data = await response.json()
       setCycles(data.cycles)
@@ -58,13 +61,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [selectedETF])
 
   const fetchSummary = useCallback(async (threshold: number) => {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch(`/api/summary/${threshold}`)
+      const response = await fetch(`/api/summary/${threshold}/${selectedETF}`)
       if (!response.ok) throw new Error('Failed to fetch summary data')
       const data = await response.json()
       setSummary(data)
@@ -73,7 +76,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [selectedETF])
+
+  // Auto-fetch data when selectedETF or threshold changes
+  useEffect(() => {
+    if (selectedETF && threshold) {
+      fetchCycles(threshold)
+      fetchSummary(threshold)
+    }
+  }, [selectedETF, threshold, fetchCycles, fetchSummary])
 
   const clearError = () => setError(null)
 

@@ -47,6 +47,41 @@
   .input-field {
     @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200;
   }
+
+  /* Custom slider styles */
+  .slider {
+    @apply w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer;
+  }
+  
+  .slider::-webkit-slider-thumb {
+    @apply appearance-none w-5 h-5 bg-blue-600 rounded-full cursor-pointer shadow-lg;
+    transition: all 0.2s ease-in-out;
+  }
+  
+  .slider::-webkit-slider-thumb:hover {
+    @apply bg-blue-700 transform scale-110;
+  }
+  
+  .slider::-moz-range-thumb {
+    @apply w-5 h-5 bg-blue-600 rounded-full cursor-pointer border-none shadow-lg;
+    transition: all 0.2s ease-in-out;
+  }
+  
+  .slider::-moz-range-thumb:hover {
+    @apply bg-blue-700 transform scale-110;
+  }
+  
+  .slider:focus {
+    @apply outline-none ring-2 ring-blue-500 ring-opacity-50;
+  }
+  
+  .slider::-webkit-slider-track {
+    @apply w-full h-2 bg-gray-200 rounded-lg;
+  }
+  
+  .slider::-moz-range-track {
+    @apply w-full h-2 bg-gray-200 rounded-lg border-none;
+  }
   
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
