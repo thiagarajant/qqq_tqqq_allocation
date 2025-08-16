@@ -2,13 +2,14 @@ version: '3.8'
 
 services:
   stock-analysis-app:
-    image: stock-analysis-webapp:refined-thresholds
+    build: .
+    image: stock-analysis:duplicate-cycles-fixed
     container_name: stock-analysis-webapp
     ports:
       - "3000:3000"
     volumes:
-      # Mount database for persistence
-      - ./database:/app/database:ro
+      # Mount database for persistence (read-write for data fetching)
+      - ./database:/app/database
       # Mount logs directory if needed
       - ./logs:/app/logs
     environment:
@@ -40,7 +41,7 @@ services:
       - /app/node_modules
       - /app/backend/node_modules
       - /app/frontend/node_modules
-      - ./database:/app/database:ro
+      - ./database:/app/database
     environment:
       - NODE_ENV=development
       - PORT=3000

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useThreshold } from '../contexts/ThresholdContext';
 import { useData } from '../contexts/DataContext';
+import { useETF } from '../contexts/ETFContext';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -18,8 +19,8 @@ import {
 
 interface ChartData {
   threshold: number;
-  qqqData: Array<{ date: string; close: number }>;
-  tqqqData: Array<{ date: string; close: number }>;
+  etf: string;
+  data: Array<{ date: string; close: number }>;
   cycles: Array<{
     ath_date: string;
     ath_price: number;
@@ -30,19 +31,19 @@ interface ChartData {
     drawdown_pct: number;
   }>;
   metadata: {
-    qqqPoints: number;
-    tqqqPoints: number;
+    dataPoints: number;
     cycles: number;
     dateRange: {
-      qqq: { start: string; end: string };
-      tqqq: { start: string; end: string };
+      start: string;
+      end: string;
     };
   };
 }
 
 const Charts: React.FC = () => {
-  const { threshold, setThreshold } = useThreshold();
+  const { threshold, setThreshold, availableThresholds } = useThreshold();
   const { error } = useData();
+  const { selectedETF } = useETF();
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [selectedTimeframe, setSelectedTimeframe] = useState<'1Y' | '2Y' | '5Y' | 'ALL'>('1Y');
   const [isLoading, setIsLoading] = useState(false);
@@ -51,13 +52,13 @@ const Charts: React.FC = () => {
     if (threshold) {
       fetchChartData(threshold);
     }
-  }, [threshold]);
+  }, [threshold, selectedETF]);
 
   const fetchChartData = async (thresh: number) => {
     setIsLoading(true);
     setChartData(null); // Clear previous data
     try {
-      const response = await fetch(`/api/chart-data/${thresh}`);
+      const response = await fetch(`/api/chart-data/${thresh}/${selectedETF}`);
       if (response.ok) {
         const data = await response.json();
         setChartData(data);
@@ -109,28 +110,22 @@ const Charts: React.FC = () => {
     return data.filter(item => new Date(item.date) >= cutoffDate);
   };
 
-  const getPerformanceData = (qqqData: Array<{ date: string; close: number }>, tqqqData: Array<{ date: string; close: number }>, timeframe: string) => {
-    const filteredQQQ = getFilteredData(qqqData, timeframe);
-    const filteredTQQQ = getFilteredData(tqqqData, timeframe);
+  const getPerformanceData = (data: Array<{ date: string; close: number }>, timeframe: string) => {
+    const filteredData = getFilteredData(data, timeframe);
     
-    if (filteredQQQ.length === 0 || filteredTQQQ.length === 0) return [];
+    if (filteredData.length === 0) return [];
     
-    const qqqStartPrice = filteredQQQ[0].close;
-    const tqqqStartPrice = filteredTQQQ[0].close;
+    const startPrice = filteredData[0].close;
     
-    return filteredQQQ.map((qqqItem, index) => {
-      const tqqqItem = filteredTQQQ[index];
-      if (!tqqqItem) return null;
-      
-      const qqqPerformance = ((qqqItem.close - qqqStartPrice) / qqqStartPrice) * 100;
-      const tqqqPerformance = ((tqqqItem.close - tqqqStartPrice) / tqqqStartPrice) * 100;
+    return filteredData.map((item) => {
+      const performance = ((item.close - startPrice) / startPrice) * 100;
       
       return {
-        date: qqqItem.date,
-        qqq_performance: qqqPerformance,
-        tqqq_performance: tqqqPerformance
+        date: item.date,
+        performance: performance,
+        price: item.close
       };
-    }).filter(Boolean);
+    });
   };
 
   const calculatePerformance = (data: Array<{ date: string; close: number }>) => {
@@ -156,7 +151,7 @@ const Charts: React.FC = () => {
     );
   }
 
-  if (!chartData.qqqData || !chartData.tqqqData || !chartData.cycles) {
+  if (!chartData.data || !chartData.cycles) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -197,31 +192,14 @@ const Charts: React.FC = () => {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Interactive Charts</h1>
           <p className="text-gray-600">
-            Visualize QQQ and TQQQ price movements with cycle annotations
+            Visualize {selectedETF} price movements with cycle annotations
           </p>
         </div>
 
         {/* Controls */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
           <div className="flex flex-wrap items-center gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Threshold</label>
-              <div className="flex gap-2">
-                {[2, 5, 10, 15, 20].map((thresh) => (
-                  <button
-                    key={thresh}
-                    onClick={() => setThreshold(thresh)}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                      threshold === thresh
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {thresh}%
-                  </button>
-                ))}
-              </div>
-            </div>
+
 
             <div className="flex gap-4">
               <div>
@@ -273,12 +251,12 @@ const Charts: React.FC = () => {
         {/* Interactive Price Charts */}
         {chartData && (
           <div className="space-y-8 chart-container">
-            {/* QQQ Price Chart */}
+            {/* ETF Price Chart */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">QQQ Price Chart</h2>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">{selectedETF} Price Chart</h2>
               <div className="h-96">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={getFilteredData(chartData.qqqData, selectedTimeframe)}>
+                  <ComposedChart data={getFilteredData(chartData.data, selectedTimeframe)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis 
                       dataKey="date" 
@@ -367,106 +345,14 @@ const Charts: React.FC = () => {
               </div>
             </div>
 
-            {/* TQQQ Price Chart */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">TQQQ Price Chart</h2>
-              <div className="h-96">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={getFilteredData(chartData.tqqqData, selectedTimeframe)}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="date" 
-                      tickFormatter={(value) => formatDate(value)}
-                      tick={{ fontSize: 12 }}
-                      stroke="#6b7280"
-                    />
-                    <YAxis 
-                      tickFormatter={(value) => `$${value.toFixed(0)}`}
-                      tick={{ fontSize: 12 }}
-                      stroke="#6b7280"
-                    />
-                    <Tooltip 
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          return (
-                            <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-                              <p className="font-medium text-gray-900">{formatDate(label)}</p>
-                              <p className="text-green-600">TQQQ: ${payload[0].value?.toFixed(2)}</p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="close" 
-                      stroke="#16a34a" 
-                      fill="#dcfce7" 
-                      strokeWidth={2}
-                      fillOpacity={0.3}
-                    />
-                    {/* Cycle Annotations */}
-                    {chartData.cycles
-                      .filter(cycle => {
-                        const cycleDate = new Date(cycle.ath_date);
-                        const now = new Date();
-                        let cutoffDate = new Date();
-                        switch (selectedTimeframe) {
-                          case '1Y': cutoffDate.setFullYear(now.getFullYear() - 1); break;
-                          case '2Y': cutoffDate.setFullYear(now.getFullYear() - 2); break;
-                          case '5Y': cutoffDate.setFullYear(now.getFullYear() - 5); break;
-                          case 'ALL': return true;
-                        }
-                        return cycleDate >= cutoffDate;
-                      })
-                      .map((cycle, index) => (
-                        <ReferenceLine
-                          key={`tqqq-${index}`}
-                          x={cycle.ath_date}
-                          stroke="#ef4444"
-                          strokeDasharray="3 3"
-                          strokeWidth={2}
-                          label={{
-                            value: `ATH: $${cycle.ath_price.toFixed(2)}`,
-                            position: 'top',
-                            fill: '#ef4444',
-                            fontSize: 10
-                          }}
-                        />
-                      ))}
-                    
-                    {/* Chart Legend */}
-                    <Legend 
-                      content={({ payload }) => (
-                        <div className="flex justify-center mt-4 space-x-6">
-                          {payload?.map((entry, index) => (
-                            <div key={index} className="flex items-center space-x-2">
-                              <div 
-                                className="w-3 h-3 rounded-full" 
-                                style={{ backgroundColor: entry.color }}
-                              ></div>
-                              <span className="text-sm text-gray-600">{entry.value}</span>
-                            </div>
-                          ))}
-                          <div className="flex items-center space-x-2">
-                            <div className="w-3 h-3 border-2 border-red-500 border-dashed"></div>
-                            <span className="text-sm text-gray-600">ATH Markers</span>
-                          </div>
-                        </div>
-                      )}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
 
-            {/* Combined Performance Chart */}
+
+            {/* Performance Chart */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Performance Comparison</h2>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">{selectedETF} Performance Over Time</h2>
               <div className="h-96">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={getPerformanceData(chartData.qqqData, chartData.tqqqData, selectedTimeframe)}>
+                  <LineChart data={getPerformanceData(chartData.data, selectedTimeframe)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis 
                       dataKey="date" 
@@ -499,19 +385,11 @@ const Charts: React.FC = () => {
                     <Legend />
                     <Line 
                       type="monotone" 
-                      dataKey="qqq_performance" 
+                      dataKey="performance" 
                       stroke="#2563eb" 
                       strokeWidth={2}
                       dot={false}
-                      name="QQQ Performance"
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="tqqq_performance" 
-                      stroke="#16a34a" 
-                      strokeWidth={2}
-                      dot={false}
-                      name="TQQQ Performance"
+                      name={`${selectedETF} Performance`}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -583,11 +461,11 @@ const Charts: React.FC = () => {
         {/* Data Summary */}
         {chartData && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            {/* QQQ Summary */}
+            {/* ETF Summary */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">QQQ Performance</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{selectedETF} Performance</h3>
               {(() => {
-                const filteredData = getFilteredData(chartData.qqqData, selectedTimeframe);
+                const filteredData = getFilteredData(chartData.data, selectedTimeframe);
                 const performance = calculatePerformance(filteredData);
                 return (
                   <div className="space-y-4">
@@ -616,37 +494,35 @@ const Charts: React.FC = () => {
               })()}
             </div>
 
-            {/* TQQQ Summary */}
+            {/* Cycle Summary */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">TQQQ Performance</h3>
-              {(() => {
-                const filteredData = getFilteredData(chartData.tqqqData, selectedTimeframe);
-                const performance = calculatePerformance(filteredData);
-                return (
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">Data Points</span>
-                      <span className="font-medium">{filteredData.length.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">Date Range</span>
-                      <span className="font-medium text-sm">
-                        {formatDate(filteredData[0]?.date)} - {formatDate(filteredData[filteredData.length - 1]?.date)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">Price Change</span>
-                      <span className={`font-medium ${performance.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatPrice(performance.change)} ({performance.changePercent >= 0 ? '+' : ''}{performance.changePercent.toFixed(2)}%)
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">Current Price</span>
-                      <span className="font-medium">{formatPrice(filteredData[filteredData.length - 1]?.close || 0)}</span>
-                    </div>
-                  </div>
-                );
-              })()}
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Cycle Summary</h3>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">Total Cycles</span>
+                  <span className="font-medium">{chartData.cycles.length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">Threshold</span>
+                  <span className="font-medium">{threshold}%</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">Average Drawdown</span>
+                  <span className="font-medium text-red-600">
+                    {chartData.cycles.length > 0 
+                      ? (chartData.cycles.reduce((sum, cycle) => sum + Math.abs(cycle.drawdown_pct), 0) / chartData.cycles.length).toFixed(2)
+                      : '0.00'}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">Max Drawdown</span>
+                  <span className="font-medium text-red-600">
+                    {chartData.cycles.length > 0 
+                      ? Math.min(...chartData.cycles.map(cycle => cycle.drawdown_pct)).toFixed(2)
+                      : '0.00'}%
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -732,16 +608,16 @@ const Charts: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Data Summary</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">QQQ Data Points:</span>
-                <span className="font-medium">{chartData.metadata.qqqPoints.toLocaleString()}</span>
+                <span className="text-gray-600">{selectedETF} Data Points:</span>
+                <span className="font-medium">{chartData.metadata?.dataPoints?.toLocaleString() || 'N/A'}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">TQQQ Data Points:</span>
-                <span className="font-medium">{chartData.metadata.tqqqPoints.toLocaleString()}</span>
+                <span className="text-gray-600">Date Range:</span>
+                <span className="font-medium">{chartData.metadata?.dateRange?.start} - {chartData.metadata?.dateRange?.end}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Total Cycles:</span>
-                <span className="font-medium">{chartData.metadata.cycles}</span>
+                <span className="font-medium">{chartData.cycles?.length || 0}</span>
               </div>
             </div>
           </div>
@@ -750,21 +626,21 @@ const Charts: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Current Status</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">QQQ Current:</span>
+                <span className="text-gray-600">{selectedETF} Current:</span>
                 <span className="font-medium text-blue-600">
-                  ${chartData.qqqData[chartData.qqqData.length - 1]?.close?.toFixed(2) || 'N/A'}
+                  ${chartData.data[chartData.data.length - 1]?.close?.toFixed(2) || 'N/A'}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">TQQQ Current:</span>
+                <span className="text-gray-600">Data Points:</span>
                 <span className="font-medium text-green-600">
-                  ${chartData.tqqqData[chartData.tqqqData.length - 1]?.close?.toFixed(2) || 'N/A'}
+                  {chartData.metadata?.dataPoints?.toLocaleString() || 'N/A'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Last Update:</span>
                 <span className="font-medium">
-                  {chartData.qqqData[chartData.qqqData.length - 1]?.date || 'N/A'}
+                  {chartData.data[chartData.data.length - 1]?.date || 'N/A'}
                 </span>
               </div>
             </div>

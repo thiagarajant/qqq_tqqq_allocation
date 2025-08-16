@@ -2,14 +2,16 @@ import { useEffect } from 'react'
 import { TrendingUp, TrendingDown, Activity, BarChart3, AlertTriangle } from 'lucide-react'
 import { useThreshold } from '../contexts/ThresholdContext'
 import { useData } from '../contexts/DataContext'
+import { useETF } from '../contexts/ETFContext'
 
 export default function Dashboard() {
   const { threshold, availableThresholds, setThreshold } = useThreshold()
   const { summary, fetchSummary } = useData()
+  const { selectedETF } = useETF()
 
   useEffect(() => {
     fetchSummary(threshold)
-  }, [threshold, fetchSummary])
+  }, [threshold, selectedETF, fetchSummary])
 
   const getThresholdInfo = () => {
     return availableThresholds.find(t => t.value === threshold) || availableThresholds[2]
@@ -41,7 +43,7 @@ export default function Dashboard() {
           Market Analysis Dashboard
         </h1>
         <p className="text-gray-600 text-lg">
-          QQQ & TQQQ drawdown cycle analysis for {getThresholdInfo()?.label} threshold
+          {selectedETF} drawdown cycle analysis for {getThresholdInfo()?.label} threshold
         </p>
       </div>
 
@@ -172,25 +174,10 @@ export default function Dashboard() {
       <div className="card">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">About {getThresholdInfo()?.label} Threshold</h3>
         <p className="text-gray-600 mb-4">
-          {getThresholdInfo()?.description} - This analysis identifies periods when QQQ has fallen 
+          {getThresholdInfo()?.description} - This analysis identifies periods when {selectedETF} has fallen 
           {threshold}% or more from its all-time high, providing insights into market cycles 
-          and TQQQ's leveraged performance during these periods.
+          and drawdown patterns during these periods.
         </p>
-        <div className="flex flex-wrap gap-2">
-          {availableThresholds.map((t) => (
-            <span
-              key={t.value}
-              onClick={() => setThreshold(t.value)}
-              className={`badge cursor-pointer transition-colors ${
-                t.value === threshold
-                  ? 'badge-info'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {t.label}
-            </span>
-          ))}
-        </div>
       </div>
     </div>
   )

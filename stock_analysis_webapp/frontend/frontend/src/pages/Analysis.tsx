@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useThreshold } from '../contexts/ThresholdContext';
 import { useData } from '../contexts/DataContext';
+import { useETF } from '../contexts/ETFContext';
 
 interface Cycle {
   ath_date: string;
@@ -21,22 +22,25 @@ interface AnalysisData {
 }
 
 const Analysis: React.FC = () => {
-  const { threshold, setThreshold } = useThreshold();
+  const { threshold, setThreshold, availableThresholds } = useThreshold();
   const { error } = useData();
+  const { selectedETF } = useETF();
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+
 
   useEffect(() => {
     if (threshold) {
       fetchAnalysisData(threshold);
     }
-  }, [threshold]);
+  }, [threshold, selectedETF]);
 
   const fetchAnalysisData = async (thresh: number) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/cycles/${thresh}`);
+      const response = await fetch(`/api/cycles/${thresh}/${selectedETF}`);
       if (response.ok) {
         const data = await response.json();
         setAnalysisData({
@@ -62,6 +66,8 @@ const Analysis: React.FC = () => {
       day: 'numeric'
     });
   };
+
+
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -106,31 +112,13 @@ const Analysis: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Cycle Analysis</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">{selectedETF} Cycle Analysis</h1>
           <p className="text-gray-600">
-            Detailed analysis of QQQ price cycles with customizable drawdown thresholds
+            Detailed analysis of {selectedETF} price cycles with customizable drawdown thresholds
           </p>
         </div>
 
-        {/* Threshold Selector */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Select Threshold</h2>
-          <div className="flex flex-wrap gap-3">
-            {[2, 5, 10, 15, 20].map((thresh) => (
-              <button
-                key={thresh}
-                onClick={() => setThreshold(thresh)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  threshold === thresh
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {thresh}%
-              </button>
-            ))}
-          </div>
-        </div>
+
 
         {/* Analysis Results */}
         {analysisData && (

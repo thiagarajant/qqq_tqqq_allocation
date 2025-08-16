@@ -2,10 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useThreshold } from '../contexts/ThresholdContext';
 import { Calculator, DollarSign, TrendingUp, Calendar, RefreshCw, BarChart3 } from 'lucide-react';
 
+// ETF pair interface for simulation
+interface ETFPair {
+  baseETF: string;
+  leveragedETF: string;
+  description: string;
+  leverageRatio: string;
+}
+
 interface SimulationResult {
   startDate: string;
   endDate: string;
   initialInvestment: number;
+  monthlyInvestment?: number;
+  totalInvested?: number;
   strategy: string;
   
   // QQQ only results
@@ -34,14 +44,38 @@ interface SimulationResult {
 
 const Simulation: React.FC = () => {
   const { threshold, setThreshold, availableThresholds } = useThreshold();
+  const [selectedETFPair, setSelectedETFPair] = useState<ETFPair>({
+    baseETF: 'QQQ',
+    leveragedETF: 'TQQQ',
+    description: 'NASDAQ-100 (QQQ) vs 3x Leveraged (TQQQ)',
+    leverageRatio: '3x'
+  });
+  const [availableETFPairs, setAvailableETFPairs] = useState<ETFPair[]>([]);
   const [investmentAmount, setInvestmentAmount] = useState<number>(10000);
   const [startDate, setStartDate] = useState<string>('2020-01-01');
   const [endDate, setEndDate] = useState<string>('2024-12-31');
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [useCustomThreshold, setUseCustomThreshold] = useState(false);
-  const [customThreshold, setCustomThreshold] = useState<number>(5);
+
+  const [monthlyInvestment, setMonthlyInvestment] = useState<number>(0);
+  const [useMonthlyInvestment, setUseMonthlyInvestment] = useState(false);
+
+  // Fetch available ETF pairs for simulation
+  useEffect(() => {
+    const fetchETFPairs = async () => {
+      try {
+        const response = await fetch('/api/available-etfs');
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableETFPairs(data.etfPairs || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch ETF pairs:', error);
+      }
+    };
+    fetchETFPairs();
+  }, []);
 
   const runSimulation = async () => {
     if (!investmentAmount || !startDate || !endDate) {
@@ -58,6 +92,7 @@ const Simulation: React.FC = () => {
     setError(null);
 
     try {
+      const { baseETF, leveragedETF } = selectedETFPair;
       const response = await fetch('/api/simulate', {
         method: 'POST',
         headers: {
@@ -67,7 +102,10 @@ const Simulation: React.FC = () => {
           amount: investmentAmount,
           startDate,
           endDate,
-          threshold: useCustomThreshold ? customThreshold : threshold,
+          threshold: threshold,
+          monthlyInvestment: useMonthlyInvestment ? monthlyInvestment : 0,
+          baseETF,
+          leveragedETF,
         }),
       });
 
@@ -162,6 +200,47 @@ const Simulation: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Monthly Investment */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Monthly Investment (Optional)
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={useMonthlyInvestment}
+                        onChange={(e) => setUseMonthlyInvestment(e.target.checked)}
+                        className="mr-2"
+                      />
+                      <span className="text-sm text-gray-600">Enable DCA</span>
+                    </label>
+                  </div>
+                  
+                  {useMonthlyInvestment && (
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="number"
+                        value={monthlyInvestment}
+                        onChange={(e) => setMonthlyInvestment(Number(e.target.value))}
+                        className="input-field pl-10"
+                        placeholder="1000"
+                        min="0"
+                        max="100000"
+                        step="50"
+                      />
+                    </div>
+                  )}
+                  
+                  <p className="text-xs text-gray-500 mt-1">
+                    {useMonthlyInvestment 
+                      ? `Add $${monthlyInvestment.toLocaleString()} every month (Dollar-Cost Averaging)`
+                      : 'Enable to add regular monthly investments throughout the period'
+                    }
+                  </p>
+                </div>
+
                 {/* Start Date */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -198,70 +277,7 @@ const Simulation: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Strategy Threshold */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Strategy Threshold
-                  </label>
-                  
-                  {/* Threshold Mode Toggle */}
-                  <div className="flex items-center space-x-4 mb-3">
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        name="thresholdMode"
-                        checked={!useCustomThreshold}
-                        onChange={() => setUseCustomThreshold(false)}
-                        className="mr-2"
-                      />
-                      <span className="text-sm text-gray-700">Preset</span>
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        name="thresholdMode"
-                        checked={useCustomThreshold}
-                        onChange={() => setUseCustomThreshold(true)}
-                        className="mr-2"
-                      />
-                      <span className="text-sm text-gray-700">Custom</span>
-                    </label>
-                  </div>
 
-                  {/* Preset Threshold Selector */}
-                  {!useCustomThreshold ? (
-                    <select
-                      value={threshold}
-                      onChange={(e) => setThreshold(Number(e.target.value))}
-                      className="input-field"
-                    >
-                      {availableThresholds.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label} - {t.description}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    /* Custom Threshold Input */
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        value={customThreshold}
-                        onChange={(e) => setCustomThreshold(Number(e.target.value))}
-                        className="input-field flex-1"
-                        placeholder="Enter threshold"
-                        min="0.1"
-                        max="50"
-                        step="0.1"
-                      />
-                      <span className="text-gray-500 font-medium">%</span>
-                    </div>
-                  )}
-                  
-                  <p className="text-xs text-gray-500 mt-1">
-                    Switch to TQQQ when QQQ drops {useCustomThreshold ? customThreshold : threshold}%+ from ATH
-                  </p>
-                </div>
 
                 {/* Error Display */}
                 {error && (
@@ -287,6 +303,33 @@ const Simulation: React.FC = () => {
           <div className="lg:col-span-2">
             {simulationResult ? (
               <div className="space-y-6">
+                {/* Investment Summary */}
+                <div className="card bg-gray-50 border-gray-200">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Investment Summary</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Initial Investment:</span>
+                      <p className="font-semibold text-gray-900">{formatCurrency(simulationResult.initialInvestment)}</p>
+                    </div>
+                    {simulationResult.monthlyInvestment && simulationResult.monthlyInvestment > 0 && (
+                      <>
+                        <div>
+                          <span className="text-gray-600">Monthly Investment:</span>
+                          <p className="font-semibold text-gray-900">{formatCurrency(simulationResult.monthlyInvestment)}/month</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Total Invested:</span>
+                          <p className="font-semibold text-blue-600">{formatCurrency(simulationResult.totalInvested || simulationResult.initialInvestment)}</p>
+                        </div>
+                      </>
+                    )}
+                    <div>
+                      <span className="text-gray-600">Period:</span>
+                      <p className="font-semibold text-gray-900">{simulationResult.durationYears.toFixed(1)} years</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Summary Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* QQQ Only */}
