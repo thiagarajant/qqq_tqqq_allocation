@@ -1053,14 +1053,13 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Something went wrong!' });
 });
 
-// Serve static files in production (must be last to not interfere with API routes)
-if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../frontend/dist')));
-    
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
-    });
-}
+// Serve static files (must be last to not interfere with API routes)
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
+// Catch-all route for SPA routing (must be last)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+});
 
 // Portfolio simulation endpoint
 app.post('/api/simulate', (req, res) => {
@@ -1201,45 +1200,45 @@ function calculatePortfolioSimulation(initialAmount, baseData, leveragedData, th
     // Calculate total invested amount
     const totalInvested = initialAmount + (monthlyInvestment * monthlyInvestmentDates.length);
 
-    // QQQ Only Strategy with Monthly Investment
-    let qqqShares = initialAmount / alignedData[0].qqq_price;
-    let qqqTotalInvested = initialAmount;
+    // Base ETF Only Strategy with Monthly Investment
+    let baseETFShares = initialAmount / alignedData[0][`${baseETF.toLowerCase()}_price`];
+    let baseETFTotalInvested = initialAmount;
     
     for (const investDate of monthlyInvestmentDates) {
         // Find the closest data point to the investment date
         const dataPoint = alignedData.find(d => new Date(d.date) >= investDate) || alignedData[alignedData.length - 1];
-        qqqShares += monthlyInvestment / dataPoint.qqq_price;
-        qqqTotalInvested += monthlyInvestment;
+        baseETFShares += monthlyInvestment / dataPoint[`${baseETF.toLowerCase()}_price`];
+        baseETFTotalInvested += monthlyInvestment;
     }
     
-    const qqqFinalValue = qqqShares * alignedData[alignedData.length - 1].qqq_price;
-    const qqqTotalReturn = qqqFinalValue - qqqTotalInvested;
-    const qqqTotalReturnPct = (qqqTotalReturn / qqqTotalInvested) * 100;
-    const qqqAnnualizedReturn = (Math.pow(qqqFinalValue / qqqTotalInvested, 1 / durationYears) - 1) * 100;
+    const baseETFFinalValue = baseETFShares * alignedData[alignedData.length - 1][`${baseETF.toLowerCase()}_price`];
+    const baseETFTotalReturn = baseETFFinalValue - baseETFTotalInvested;
+    const baseETFTotalReturnPct = (baseETFTotalReturn / baseETFTotalInvested) * 100;
+    const baseETFAnnualizedReturn = (Math.pow(baseETFFinalValue / baseETFTotalInvested, 1 / durationYears) - 1) * 100;
 
-    // TQQQ Only Strategy with Monthly Investment
-    let tqqqShares = initialAmount / alignedData[0].tqqq_price;
-    let tqqqTotalInvested = initialAmount;
+    // Leveraged ETF Only Strategy with Monthly Investment
+    let leveragedETFShares = initialAmount / alignedData[0][`${leveragedETF.toLowerCase()}_price`];
+    let leveragedETFTotalInvested = initialAmount;
     
     for (const investDate of monthlyInvestmentDates) {
         // Find the closest data point to the investment date
         const dataPoint = alignedData.find(d => new Date(d.date) >= investDate) || alignedData[alignedData.length - 1];
-        tqqqShares += monthlyInvestment / dataPoint.tqqq_price;
-        tqqqTotalInvested += monthlyInvestment;
+        leveragedETFShares += monthlyInvestment / dataPoint[`${leveragedETF.toLowerCase()}_price`];
+        leveragedETFTotalInvested += monthlyInvestment;
     }
     
-    const tqqqFinalValue = tqqqShares * alignedData[alignedData.length - 1].tqqq_price;
-    const tqqqTotalReturn = tqqqFinalValue - tqqqTotalInvested;
-    const tqqqTotalReturnPct = (tqqqTotalReturn / tqqqTotalInvested) * 100;
-    const tqqqAnnualizedReturn = (Math.pow(tqqqFinalValue / tqqqTotalInvested, 1 / durationYears) - 1) * 100;
+    const leveragedETFFinalValue = leveragedETFShares * alignedData[alignedData.length - 1][`${leveragedETF.toLowerCase()}_price`];
+    const leveragedETFTotalReturn = leveragedETFFinalValue - leveragedETFTotalInvested;
+    const leveragedETFTotalReturnPct = (leveragedETFTotalReturn / leveragedETFTotalInvested) * 100;
+    const leveragedETFAnnualizedReturn = (Math.pow(leveragedETFFinalValue / leveragedETFTotalInvested, 1 / durationYears) - 1) * 100;
 
-    // Smart Strategy (QQQ with TQQQ during drawdowns) with Monthly Investment
+    // Smart Strategy (Base ETF with Leveraged ETF during drawdowns) with Monthly Investment
     let strategyValue = initialAmount;
     let strategyTotalInvested = initialAmount;
-    let currentHolding = 'QQQ'; // Start with QQQ
-    let qqqATH = alignedData[0].qqq_price;
+    let currentHolding = baseETF; // Start with base ETF
+    let baseETFATH = alignedData[0][`${baseETF.toLowerCase()}_price`];
     let switches = 0;
-    let shares = initialAmount / alignedData[0].qqq_price; // Start with QQQ shares
+    let shares = initialAmount / alignedData[0][`${baseETF.toLowerCase()}_price`]; // Start with base ETF shares
     let monthlyInvestmentIndex = 0;
     
     for (let i = 1; i < alignedData.length; i++) {
@@ -1251,44 +1250,44 @@ function calculatePortfolioSimulation(initialAmount, baseData, leveragedData, th
             currentDate >= monthlyInvestmentDates[monthlyInvestmentIndex]) {
             
             // Add monthly investment to current position
-            if (currentHolding === 'QQQ') {
-                shares += monthlyInvestment / current.qqq_price;
+            if (currentHolding === baseETF) {
+                shares += monthlyInvestment / current[`${baseETF.toLowerCase()}_price`];
             } else {
-                shares += monthlyInvestment / current.tqqq_price;
+                shares += monthlyInvestment / current[`${leveragedETF.toLowerCase()}_price`];
             }
             strategyTotalInvested += monthlyInvestment;
             monthlyInvestmentIndex++;
         }
         
-        // Update QQQ ATH
-        if (current.qqq_price > qqqATH) {
-            qqqATH = current.qqq_price;
+        // Update base ETF ATH
+        if (current[`${baseETF.toLowerCase()}_price`] > baseETFATH) {
+            baseETFATH = current[`${baseETF.toLowerCase()}_price`];
             
-            // If we're in TQQQ and QQQ hits new ATH, switch back to QQQ
-            if (currentHolding === 'TQQQ') {
-                strategyValue = shares * current.tqqq_price;
-                shares = strategyValue / current.qqq_price;
-                currentHolding = 'QQQ';
+            // If we're in leveraged ETF and base ETF hits new ATH, switch back to base ETF
+            if (currentHolding === leveragedETF) {
+                strategyValue = shares * current[`${leveragedETF.toLowerCase()}_price`];
+                shares = strategyValue / current[`${baseETF.toLowerCase()}_price`];
+                currentHolding = baseETF;
                 switches++;
             }
         }
         
         // Check for drawdown
-        const drawdown = ((current.qqq_price - qqqATH) / qqqATH) * 100;
+        const drawdown = ((current[`${baseETF.toLowerCase()}_price`] - baseETFATH) / baseETFATH) * 100;
         
-        if (drawdown <= -threshold && currentHolding === 'QQQ') {
-            // Switch from QQQ to TQQQ
-            strategyValue = shares * current.qqq_price;
-            shares = strategyValue / current.tqqq_price;
-            currentHolding = 'TQQQ';
+        if (drawdown <= -threshold && currentHolding === baseETF) {
+            // Switch from base ETF to leveraged ETF
+            strategyValue = shares * current[`${baseETF.toLowerCase()}_price`];
+            shares = strategyValue / current[`${leveragedETF.toLowerCase()}_price`];
+            currentHolding = leveragedETF;
             switches++;
         }
         
         // Update strategy value based on current holding
-        if (currentHolding === 'QQQ') {
-            strategyValue = shares * current.qqq_price;
+        if (currentHolding === baseETF) {
+            strategyValue = shares * current[`${baseETF.toLowerCase()}_price`];
         } else {
-            strategyValue = shares * current.tqqq_price;
+            strategyValue = shares * current[`${leveragedETF.toLowerCase()}_price`];
         }
     }
     
@@ -1303,20 +1302,20 @@ function calculatePortfolioSimulation(initialAmount, baseData, leveragedData, th
         monthlyInvestment,
         totalInvested: Math.round(totalInvested),
         strategy: monthlyInvestment > 0 
-            ? `QQQ→TQQQ at ${threshold}% drawdown + $${monthlyInvestment}/month DCA`
-            : `QQQ→TQQQ at ${threshold}% drawdown`,
+            ? `${baseETF}→${leveragedETF} at ${threshold}% drawdown + $${monthlyInvestment}/month DCA`
+            : `${baseETF}→${leveragedETF} at ${threshold}% drawdown`,
         
-        // QQQ only results
-        qqqFinalValue: Math.round(qqqFinalValue),
-        qqqTotalReturn: Math.round(qqqTotalReturn),
-        qqqTotalReturnPct: parseFloat(qqqTotalReturnPct.toFixed(2)),
-        qqqAnnualizedReturn: parseFloat(qqqAnnualizedReturn.toFixed(2)),
+        // Base ETF only results
+        baseETFFinalValue: Math.round(baseETFFinalValue),
+        baseETFTotalReturn: Math.round(baseETFTotalReturn),
+        baseETFTotalReturnPct: parseFloat(baseETFTotalReturnPct.toFixed(2)),
+        baseETFAnnualizedReturn: parseFloat(baseETFAnnualizedReturn.toFixed(2)),
         
-        // TQQQ only results
-        tqqqFinalValue: Math.round(tqqqFinalValue),
-        tqqqTotalReturn: Math.round(tqqqTotalReturn),
-        tqqqTotalReturnPct: parseFloat(tqqqTotalReturnPct.toFixed(2)),
-        tqqqAnnualizedReturn: parseFloat(tqqqAnnualizedReturn.toFixed(2)),
+        // Leveraged ETF only results
+        leveragedETFFinalValue: Math.round(leveragedETFFinalValue),
+        leveragedETFTotalReturn: Math.round(leveragedETFTotalReturn),
+        leveragedETFTotalReturnPct: parseFloat(leveragedETFTotalReturnPct.toFixed(2)),
+        leveragedETFAnnualizedReturn: parseFloat(leveragedETFAnnualizedReturn.toFixed(2)),
         
         // Strategy results
         strategyFinalValue: Math.round(strategyValue),
