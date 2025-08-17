@@ -582,14 +582,18 @@ function detectCyclesFromScratch(priceData, threshold, etf) {
         
         // Only create cycle if drawdown exceeds threshold
         if (drawdownPct < -threshold) {
-            // Check if recovery happened within this cycle
+            // Check if recovery happened - search from low point through ALL remaining data
             let recoveryDate = null;
             let recoveryPrice = null;
             
-            for (let j = lowestIndex; j < cycleData.length; j++) {
-                if (cycleData[j].close >= ath.price) {
-                    recoveryDate = cycleData[j].date;
-                    recoveryPrice = cycleData[j].close;
+            // Calculate the actual index of the low point in the full dataset
+            const actualLowIndex = athIndex + lowestIndex;
+            
+            // Search from the low point forward through ALL remaining data
+            for (let j = actualLowIndex + 1; j < priceData.length; j++) {
+                if (priceData[j].close >= ath.price) {
+                    recoveryDate = priceData[j].date;
+                    recoveryPrice = priceData[j].close;
                     break;
                 }
             }
@@ -641,6 +645,7 @@ function detectCyclesFromScratch(priceData, threshold, etf) {
             
             cycles.push(cycle);
             console.log(`✅ Created cycle ${cycle.cycle_number}: ${ath.date} ($${ath.price}) → ${lowestDate} ($${lowestPrice}) [${drawdownPct.toFixed(1)}%] ${recoveryDate ? `→ ${recoveryDate} ($${recoveryPrice})` : '→ Ongoing'}`);
+            console.log(`   Debug: ATH index ${athIndex}, cycle data length ${cycleData.length}, lowest index ${lowestIndex}, next ATH index ${nextAthIndex}`);
         }
     }
     
