@@ -3,6 +3,17 @@ import { Download, Search, TrendingDown, X, Calendar, TrendingUp } from 'lucide-
 import { useThreshold } from '../contexts/ThresholdContext'
 import { useData } from '../contexts/DataContext'
 import { useETF } from '../contexts/ETFContext'
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  ReferenceArea
+} from 'recharts'
 
 export default function Cycles() {
   const { threshold, availableThresholds, setThreshold } = useThreshold()
@@ -14,6 +25,7 @@ export default function Cycles() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [selectedCycle, setSelectedCycle] = useState<any>(null)
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
+  const [chartData, setChartData] = useState<any>(null)
 
   // Function to fetch current price - IMPROVED with better error handling and fallbacks
   const fetchCurrentPrice = async () => {
@@ -95,6 +107,30 @@ export default function Cycles() {
   useEffect(() => {
     fetchCurrentPrice()
   }, [selectedETF]) // Fetch when ETF changes
+
+  // Function to fetch chart data for the selected cycle
+  const fetchChartData = async () => {
+    if (!selectedETF) return
+    
+    try {
+      const response = await fetch(`/api/chart-data/${threshold}/${selectedETF}`)
+      if (response.ok) {
+        const data = await response.json()
+        setChartData(data)
+      } else {
+        console.error('Failed to fetch chart data')
+      }
+    } catch (err) {
+      console.error('Error fetching chart data:', err)
+    }
+  }
+
+  // Fetch chart data when a cycle is selected
+  useEffect(() => {
+    if (selectedCycle) {
+      fetchChartData()
+    }
+  }, [selectedCycle, selectedETF, threshold])
 
   const filteredCycles = cycles
     .filter(cycle => {
@@ -197,6 +233,42 @@ export default function Cycles() {
     const diffTime = Math.abs(end.getTime() - start.getTime())
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
     return diffDays
+  }
+
+  // Chart helper functions
+  const formatChartDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    })
+  }
+
+  const formatChartPrice = (price: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(price)
+  }
+
+  // Get filtered chart data for the selected cycle period
+  const getCycleChartData = () => {
+    if (!chartData || !selectedCycle) return []
+    
+    const cycleStart = new Date(selectedCycle.ath_date)
+    const cycleEnd = selectedCycle.recovery_date ? new Date(selectedCycle.recovery_date) : new Date()
+    
+    // Add some padding before and after the cycle for context
+    const paddingDays = 30
+    const paddedStart = new Date(cycleStart.getTime() - (paddingDays * 24 * 60 * 60 * 1000))
+    const paddedEnd = new Date(cycleEnd.getTime() + (paddingDays * 24 * 60 * 60 * 1000))
+    
+    return chartData.data.filter((point: any) => {
+      const pointDate = new Date(point.date)
+      return pointDate >= paddedStart && pointDate <= paddedEnd
+    })
   }
 
   if (isLoading) {
@@ -340,40 +412,40 @@ export default function Cycles() {
                     }`}
                     onClick={() => setSelectedCycle(selectedCycle?.cycle_number === cycle.cycle_number ? null : cycle)}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       <div className="flex items-center">
                         <span>{cycle.cycle_number}</span>
                         {selectedCycle?.cycle_number === cycle.cycle_number && (
                           <TrendingUp className="w-4 h-4 ml-2 text-blue-500" />
                         )}
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`badge ${getSeverityBadge(cycle.severity)}`}>
-                        {cycle.severity}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`badge ${getSeverityBadge(cycle.severity)}`}>
+                      {cycle.severity}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(cycle.ath_date).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ${cycle.ath_price.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(cycle.low_date).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ${cycle.low_price.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {cycle.drawdown_pct.toFixed(1)}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <span className="font-medium text-gray-700">
                         {calculateDuration(cycle.ath_date, cycle.low_date)} days
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {cycle.recovery_date ? (
                         <span className="font-medium text-green-600">
                           {calculateDuration(cycle.low_date, cycle.recovery_date)} days
@@ -578,10 +650,120 @@ export default function Cycles() {
                                 </div>
                               </div>
                             </div>
+
+                            {/* Cycle Price Chart */}
+                            {chartData && (
+                              <div className="mt-6">
+                                <h5 className="font-semibold text-gray-900 mb-4 flex items-center text-sm">
+                                  <TrendingUp className="w-4 h-4 mr-2 text-blue-500" />
+                                  Cycle Price Chart
+                                </h5>
+                                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                                  <div className="h-80">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <ComposedChart data={getCycleChartData()}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                        <XAxis 
+                                          dataKey="date" 
+                                          tickFormatter={(value) => formatChartDate(value)}
+                                          tick={{ fontSize: 10 }}
+                                          stroke="#6b7280"
+                                        />
+                                        <YAxis 
+                                          tickFormatter={(value) => `$${value.toFixed(0)}`}
+                                          tick={{ fontSize: 10 }}
+                                          stroke="#6b7280"
+                                        />
+                                        <Tooltip 
+                                          content={({ active, payload, label }) => {
+                                            if (active && payload && payload.length) {
+                                              return (
+                                                <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+                                                  <p className="font-medium text-gray-900">{formatChartDate(label)}</p>
+                                                  <p className="text-blue-600">{selectedETF}: ${payload[0].value?.toFixed(2)}</p>
+                                                </div>
+                                              )
+                                            }
+                                            return null
+                                          }}
+                                        />
+                                        <Area 
+                                          type="monotone" 
+                                          dataKey="close" 
+                                          stroke="#2563eb" 
+                                          fill="#dbeafe" 
+                                          strokeWidth={2}
+                                          fillOpacity={0.3}
+                                        />
+                                        
+                                        {/* Highlight the current cycle */}
+                                        <ReferenceLine
+                                          x={selectedCycle.ath_date}
+                                          stroke="#ef4444"
+                                          strokeDasharray="3 3"
+                                          strokeWidth={2}
+                                          label={{
+                                            value: `ATH: ${formatChartPrice(selectedCycle.ath_price)}`,
+                                            position: 'top',
+                                            fill: '#ef4444',
+                                            fontSize: 10
+                                          }}
+                                        />
+                                        <ReferenceLine
+                                          x={selectedCycle.low_date}
+                                          stroke="#dc2626"
+                                          strokeDasharray="3 3"
+                                          strokeWidth={2}
+                                          label={{
+                                            value: `Low: ${formatChartPrice(selectedCycle.low_price)}`,
+                                            position: 'bottom',
+                                            fill: '#dc2626',
+                                            fontSize: 10
+                                          }}
+                                        />
+                                        {selectedCycle.recovery_date && (
+                                          <ReferenceLine
+                                            x={selectedCycle.recovery_date}
+                                            stroke="#059669"
+                                            strokeDasharray="3 3"
+                                            strokeWidth={2}
+                                            label={{
+                                              value: `Recovery: ${formatChartPrice(selectedCycle.recovery_price)}`,
+                                              position: 'top',
+                                              fill: '#059669',
+                                              fontSize: 10
+                                            }}
+                                          />
+                                        )}
+                                        
+                                        {/* Highlight the cycle period */}
+                                        <ReferenceArea
+                                          x1={selectedCycle.ath_date}
+                                          x2={selectedCycle.recovery_date || new Date().toISOString().split('T')[0]}
+                                          fill="#fef3c7"
+                                          fillOpacity={0.3}
+                                          stroke="none"
+                                        />
+                                      </ComposedChart>
+                                    </ResponsiveContainer>
+                                  </div>
+                                  <div className="mt-3 text-xs text-gray-600 text-center">
+                                    <span className="inline-block w-3 h-3 bg-red-500 rounded-full mr-1"></span>
+                                    ATH • 
+                                    <span className="inline-block w-3 h-3 bg-red-600 rounded-full mx-1"></span>
+                                    Low • 
+                                    <span className="inline-block w-3 h-3 bg-green-600 rounded-full mx-1"></span>
+                                    Recovery • 
+                                    <span className="inline-block w-3 h-3 bg-yellow-200 rounded-full mx-1"></span>
+                                    Cycle Period
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      </td>
-                    </tr>
+                  </td>
+                </tr>
                   )}
                 </React.Fragment>
               ))}

@@ -268,13 +268,6 @@ function parseStooqCSV(csvData) {
     // Skip header line and parse data
     const dataLines = lines.slice(1);
     const parsedData = [];
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth() + 1;
-    const currentDay = currentDate.getDate();
-    
-    let corruptedDatesCount = 0;
-    let validDatesCount = 0;
     
     for (const line of dataLines) {
         const columns = line.split(',');
@@ -285,22 +278,6 @@ function parseStooqCSV(csvData) {
             // Parse the date (Stooq format: YYYY-MM-DD)
             const [year, month, day] = date.split('-').map(Number);
             
-            // AUTOMATIC DATA CLEANING: Filter out corrupted future dates
-            if (year > currentYear || 
-                (year === currentYear && month > currentMonth) ||
-                (year === currentYear && month === currentMonth && day > currentDay)) {
-                console.log(`🚨 AUTOMATIC CLEANING: Filtered out corrupted future date: ${date}`);
-                corruptedDatesCount++;
-                continue; // Skip this corrupted data point
-            }
-            
-            // Validate that the date is reasonable (not too far in the past)
-            if (year < 1900) {
-                console.log(`🚨 AUTOMATIC CLEANING: Filtered out unreasonable past date: ${date}`);
-                corruptedDatesCount++;
-                continue;
-            }
-            
             // Parse numeric values with validation
             const openPrice = parseFloat(open);
             const highPrice = parseFloat(high);
@@ -310,15 +287,13 @@ function parseStooqCSV(csvData) {
             
             // Validate price data integrity
             if (isNaN(openPrice) || isNaN(highPrice) || isNaN(lowPrice) || isNaN(closePrice) || isNaN(volumeNum)) {
-                console.log(`🚨 AUTOMATIC CLEANING: Filtered out invalid numeric data: ${line}`);
-                corruptedDatesCount++;
+                console.log(`⚠️ Invalid numeric data, skipping: ${line}`);
                 continue;
             }
             
             // Validate price logic (high >= low, etc.)
             if (highPrice < lowPrice || closePrice < 0 || openPrice < 0) {
-                console.log(`🚨 AUTOMATIC CLEANING: Filtered out illogical price data: ${line}`);
-                corruptedDatesCount++;
+                console.log(`⚠️ Illogical price data, skipping: ${line}`);
                 continue;
             }
             
@@ -331,17 +306,11 @@ function parseStooqCSV(csvData) {
                 volume: volumeNum
             });
             
-            validDatesCount++;
         }
     }
     
-    console.log(`✅ AUTOMATIC DATA CLEANING COMPLETED:`);
-    console.log(`   - Valid data points: ${validDatesCount}`);
-    console.log(`   - Corrupted data filtered: ${corruptedDatesCount}`);
-    console.log(`   - Total lines processed: ${dataLines.length}`);
-    
     if (parsedData.length === 0) {
-        throw new Error('No valid data points found after automatic cleaning');
+        throw new Error('No valid data points found');
     }
     
     // Sort by date (oldest first) and log date range
@@ -424,81 +393,7 @@ function saveHistoricalData(symbol, data) {
     });
 }
 
-// Function to automatically clean corrupted data from existing tables
-async function cleanCorruptedData(symbol) {
-    const tableName = `${symbol.toLowerCase()}_all_history`;
-    
-    try {
-        // Check if table exists
-        const tableExists = await new Promise((resolve, reject) => {
-            db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [tableName], (err, row) => {
-                if (err) reject(err);
-                else resolve(!!row);
-            });
-        });
-        
-        if (!tableExists) {
-            console.log(`Table ${tableName} doesn't exist, nothing to clean`);
-            return;
-        }
-        
-        const currentDate = new Date();
-        const currentYear = currentDate.getFullYear();
-        const currentMonth = currentDate.getMonth() + 1;
-        const currentDay = currentDate.getDate();
-        
-        // Count corrupted records
-        const corruptedCount = await new Promise((resolve, reject) => {
-            db.get(`
-                SELECT COUNT(*) as count 
-                FROM ${tableName} 
-                WHERE CAST(SUBSTR(date, 1, 4) AS INTEGER) > ? 
-                   OR (CAST(SUBSTR(date, 1, 4) AS INTEGER) = ? AND CAST(SUBSTR(date, 6, 2) AS INTEGER) > ?)
-                   OR (CAST(SUBSTR(date, 1, 4) AS INTEGER) = ? AND CAST(SUBSTR(date, 6, 2) AS INTEGER) = ? AND CAST(SUBSTR(date, 9, 2) AS INTEGER) > ?)
-            `, [currentYear, currentYear, currentMonth, currentYear, currentMonth, currentDay], (err, row) => {
-                if (err) reject(err);
-                else resolve(row.count);
-            });
-        });
-        
-        if (corruptedCount > 0) {
-            console.log(`🚨 AUTOMATIC CLEANING: Found ${corruptedCount} corrupted future dates in ${tableName}`);
-            
-            // Delete corrupted records
-            const deletedCount = await new Promise((resolve, reject) => {
-                db.run(`
-                    DELETE FROM ${tableName} 
-                    WHERE CAST(SUBSTR(date, 1, 4) AS INTEGER) > ? 
-                       OR (CAST(SUBSTR(date, 1, 4) AS INTEGER) = ? AND CAST(SUBSTR(date, 6, 2) AS INTEGER) > ?)
-                       OR (CAST(SUBSTR(date, 1, 4) AS INTEGER) = ? AND CAST(SUBSTR(date, 6, 2) AS INTEGER) = ? AND CAST(SUBSTR(date, 9, 2) AS INTEGER) > ?)
-                `, [currentYear, currentYear, currentMonth, currentYear, currentMonth, currentDay], function(err) {
-                    if (err) reject(err);
-                    else resolve(this.changes);
-                });
-            });
-            
-            console.log(`✅ AUTOMATIC CLEANING: Removed ${deletedCount} corrupted records from ${tableName}`);
-            
-            // Get clean data range
-            const dataRange = await new Promise((resolve, reject) => {
-                db.get(`
-                    SELECT MIN(date) as start_date, MAX(date) as end_date, COUNT(*) as total_rows
-                    FROM ${tableName}
-                `, [], (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                });
-            });
-            
-            console.log(`📊 CLEAN DATA RANGE: ${dataRange.start_date} to ${dataRange.end_date} (${dataRange.total_rows} rows)`);
-        } else {
-            console.log(`✅ ${tableName} is already clean (no corrupted dates found)`);
-        }
-        
-    } catch (error) {
-        console.error(`Error cleaning corrupted data from ${tableName}:`, error);
-    }
-}
+
 
 // Get cycles for specific threshold and single ETF
 app.get('/api/cycles/:threshold/:etf?', async (req, res) => {
@@ -510,10 +405,6 @@ app.get('/api/cycles/:threshold/:etf?', async (req, res) => {
     }
     
     try {
-        // AUTOMATIC DATA CLEANING: Clean corrupted data before analysis
-        console.log(`🧹 AUTOMATIC CLEANING: Checking ${etf} data for corruption...`);
-        await cleanCorruptedData(etf);
-        
         const cycles = await executeSingleETFCyclesQuery(etf, threshold);
         res.json(cycles);
     } catch (error) {
@@ -522,39 +413,15 @@ app.get('/api/cycles/:threshold/:etf?', async (req, res) => {
     }
 });
 
-// Helper function for single ETF cycles query
+// Helper function for single ETF cycles query - COMPLETELY REWRITTEN
 async function executeSingleETFCyclesQuery(etf, threshold) {
     const tableName = `${etf.toLowerCase()}_all_history`;
     
     return new Promise((resolve, reject) => {
+        // Simple query: just get all price data ordered by date
         const query = `
-            WITH etf_data AS (
-                SELECT 
-                    date,
-                    close,
-                    MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) as cummax,
-                    ((close - MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) / 
-                     MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) * 100 as drawdown
-                FROM ${tableName}
-                ORDER BY date
-            ),
-            cycles AS (
-                SELECT 
-                    date,
-                    close,
-                    cummax,
-                    drawdown,
-                    CASE WHEN close = cummax THEN 1 ELSE 0 END as is_ath
-                FROM etf_data
-            )
-            SELECT 
-                date,
-                close,
-                cummax,
-                drawdown,
-                is_ath
-            FROM cycles
-            WHERE is_ath = 1 OR drawdown < -${threshold}
+            SELECT date, close
+            FROM ${tableName}
             ORDER BY date
         `;
 
@@ -565,8 +432,8 @@ async function executeSingleETFCyclesQuery(etf, threshold) {
                 return;
             }
 
-            // Process the data to identify complete cycles
-            const cycles = processCycles(rows, threshold, etf, etf); // Use same ETF for both parameters
+            // Process the data with new cycle detection algorithm
+            const cycles = detectCyclesFromScratch(rows, threshold, etf);
             
             resolve({
                 threshold: threshold,
@@ -614,33 +481,8 @@ app.get('/api/cycles/:threshold/:baseETF?/:leveragedETF?', (req, res) => {
 function executeCyclesQuery(threshold, baseETF, leveragedETF, baseTable, leveragedTable, res) {
 
     const query = `
-        WITH base_data AS (
-            SELECT 
-                date,
-                close,
-                MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) as cummax,
-                ((close - MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) / 
-                 MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) * 100 as drawdown
-            FROM ${baseTable}
-            ORDER BY date
-        ),
-        cycles AS (
-            SELECT 
-                date,
-                close,
-                cummax,
-                drawdown,
-                CASE WHEN close = cummax THEN 1 ELSE 0 END as is_ath
-            FROM base_data
-        )
-        SELECT 
-            date,
-            close,
-            cummax,
-            drawdown,
-            is_ath
-        FROM cycles
-        WHERE is_ath = 1 OR drawdown < -${threshold}
+        SELECT date, close
+        FROM ${baseTable}
         ORDER BY date
     `;
 
@@ -651,7 +493,7 @@ function executeCyclesQuery(threshold, baseETF, leveragedETF, baseTable, leverag
         }
 
         // Process the data to identify complete cycles
-        const cycles = processCycles(rows, threshold, baseETF, leveragedETF);
+        const cycles = detectCyclesFromScratch(rows, threshold, baseETF);
         
         res.json({
             threshold: threshold,
@@ -664,217 +506,145 @@ function executeCyclesQuery(threshold, baseETF, leveragedETF, baseTable, leverag
     });
 }
 
-// Process raw data into cycles - FIXED to prevent duplicates and ensure accurate cycle detection
-function processCycles(rows, threshold, baseETF = 'QQQ', leveragedETF = 'TQQQ') {
+// COMPLETELY NEW CYCLE DETECTION ALGORITHM - WRITTEN FROM SCRATCH
+function detectCyclesFromScratch(priceData, threshold, etf) {
+    console.log(`🔄 Starting fresh cycle detection for ${etf} with ${threshold}% threshold`);
+    console.log(`📊 Total data points: ${priceData.length}`);
+    
+    if (priceData.length < 2) {
+        console.log('⚠️ Not enough data for cycle detection');
+        return [];
+    }
+    
     const cycles = [];
-    let currentATH = null;
-    let currentATHDate = null;
-    let currentATHIndex = null;
     let cycleNumber = 1;
-    let processedRanges = new Set(); // Track processed date ranges to prevent duplicates
-
-    for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
+    
+    // Step 1: Find all-time highs (true peaks, not local bounces)
+    const athPoints = [];
+    let runningMax = priceData[0].close;
+    let runningMaxDate = priceData[0].date;
+    
+    for (let i = 1; i < priceData.length; i++) {
+        const currentPrice = priceData[i].close;
+        const currentDate = priceData[i].date;
         
-        if (row.is_ath === 1) { // New all-time high
-            // Process any cycles from the previous ATH period
-            if (currentATH !== null && currentATHIndex !== null) {
-                const periodData = rows.slice(currentATHIndex, i);
-                const minDrawdown = Math.min(...periodData.map(r => r.drawdown));
-                
-                if (minDrawdown < -threshold) {
-                    const lowPoint = periodData.reduce((min, r) => 
-                        r.close < min.close ? r : min, periodData[0]);
-                    
-                    // Create a unique identifier for this cycle range
-                    const cycleRangeKey = `${currentATHDate}_${lowPoint.date}`;
-                    
-                    // Only process if we haven't already processed this range
-                    if (!processedRanges.has(cycleRangeKey)) {
-                        // Determine severity based on drawdown percentage
-                        let severity = 'mild';
-                        if (Math.abs(lowPoint.drawdown) >= 20) {
-                            severity = 'severe';
-                        } else if (Math.abs(lowPoint.drawdown) >= 10) {
-                            severity = 'moderate';
-                        }
-                        
-                        const basePrefix = baseETF.toLowerCase();
-                        cycles.push({
-                            cycle_number: cycleNumber++,
-                            severity: severity,
-                            [`${basePrefix}_ath_date`]: currentATHDate,
-                            [`${basePrefix}_ath_price`]: currentATH,
-                            [`${basePrefix}_low_date`]: lowPoint.date,
-                            [`${basePrefix}_low_price`]: lowPoint.close,
-                            [`${basePrefix}_drawdown_pct`]: lowPoint.drawdown,
-                            [`${basePrefix}_recovery_date`]: row.date,
-                            [`${basePrefix}_recovery_price`]: row.close,
-                            threshold: threshold,
-                            // Legacy fields for backward compatibility (QQQ format)
-                            qqq_ath_date: currentATHDate,
-                            qqq_ath_price: currentATH,
-                            qqq_low_date: lowPoint.date,
-                            qqq_low_price: lowPoint.close,
-                            qqq_drawdown_pct: lowPoint.drawdown,
-                            qqq_recovery_date: row.date,
-                            qqq_recovery_price: row.close,
-                            // Generic fields
-                            ath_date: currentATHDate,
-                            ath_price: currentATH,
-                            low_date: lowPoint.date,
-                            low_price: lowPoint.close,
-                            drawdown_pct: lowPoint.drawdown,
-                            recovery_date: row.date,
-                            recovery_price: row.close
-                        });
-                        
-                        // Mark this range as processed
-                        processedRanges.add(cycleRangeKey);
-                    }
-                }
-            }
-            
-            currentATH = row.close;
-            currentATHDate = row.date;
-            currentATHIndex = i;
-        } else if (row.drawdown < -threshold) {
-            // Find the local high point before this drawdown
-            let localHighIndex = i - 1;
-            while (localHighIndex >= 0 && rows[localHighIndex].close <= rows[localHighIndex + 1].close) {
-                localHighIndex--;
-            }
-            
-            if (localHighIndex >= 0) {
-                const localHigh = rows[localHighIndex];
-                const localHighPrice = localHigh.close;
-                const localHighDate = localHigh.date;
-                
-                // Find the actual low point of this drawdown
-                let lowIndex = i;
-                while (lowIndex < rows.length && rows[lowIndex].drawdown < -threshold) {
-                    lowIndex++;
-                }
-                lowIndex = Math.min(lowIndex, rows.length - 1);
-                
-                const lowPoint = rows[lowIndex];
-                const drawdownPct = ((lowPoint.close - localHighPrice) / localHighPrice) * 100;
-                
-                // Only process if this is a significant drawdown
-                if (drawdownPct < -threshold) {
-                    // Create a unique identifier for this cycle range
-                    const cycleRangeKey = `${localHighDate}_${lowPoint.date}`;
-                    
-                    // Only process if we haven't already processed this range
-                    if (!processedRanges.has(cycleRangeKey)) {
-                        // Determine severity based on drawdown percentage
-                        let severity = 'mild';
-                        if (Math.abs(drawdownPct) >= 20) {
-                            severity = 'severe';
-                        } else if (Math.abs(drawdownPct) >= 10) {
-                            severity = 'moderate';
-                        }
-                        
-                        // Check if recovery happened
-                        let recoveryPoint = null;
-                        for (let j = lowIndex + 1; j < rows.length; j++) {
-                            if (rows[j].close >= localHighPrice) {
-                                recoveryPoint = rows[j];
-                                break;
-                            }
-                        }
-                        
-                        const basePrefix = baseETF.toLowerCase();
-                        cycles.push({
-                            cycle_number: cycleNumber++,
-                            severity: severity,
-                            [`${basePrefix}_ath_date`]: localHighDate,
-                            [`${basePrefix}_ath_price`]: localHighPrice,
-                            [`${basePrefix}_low_date`]: lowPoint.date,
-                            [`${basePrefix}_low_price`]: lowPoint.close,
-                            [`${basePrefix}_drawdown_pct`]: drawdownPct,
-                            [`${basePrefix}_recovery_date`]: recoveryPoint ? recoveryPoint.date : null,
-                            [`${basePrefix}_recovery_price`]: recoveryPoint ? recoveryPoint.close : null,
-                            threshold: threshold,
-                            // Legacy fields for backward compatibility (QQQ format)
-                            qqq_ath_date: localHighDate,
-                            qqq_ath_price: localHighPrice,
-                            qqq_low_date: lowPoint.date,
-                            qqq_low_price: lowPoint.close,
-                            qqq_drawdown_pct: drawdownPct,
-                            qqq_recovery_date: recoveryPoint ? recoveryPoint.date : null,
-                            qqq_recovery_price: recoveryPoint ? recoveryPoint.close : null,
-                            // Generic fields
-                            ath_date: localHighDate,
-                            ath_price: localHighPrice,
-                            low_date: lowPoint.date,
-                            low_price: lowPoint.close,
-                            drawdown_pct: drawdownPct,
-                            recovery_date: recoveryPoint ? recoveryPoint.date : null,
-                            recovery_price: recoveryPoint ? recoveryPoint.close : null
-                        });
-                        
-                        // Mark this range as processed
-                        processedRanges.add(cycleRangeKey);
-                    }
-                }
-            }
+        if (currentPrice > runningMax) {
+            // New all-time high found
+            athPoints.push({
+                date: runningMaxDate,
+                price: runningMax,
+                index: i - 1
+            });
+            runningMax = currentPrice;
+            runningMaxDate = currentDate;
         }
     }
-
-    // Handle the last period if it ended in a drawdown
-    if (currentATH !== null && currentATHIndex !== null) {
-        const periodData = rows.slice(currentATHIndex);
-        const minDrawdown = Math.min(...periodData.map(r => r.drawdown));
+    
+    // Add the last ATH if it's not already included
+    if (athPoints.length === 0 || athPoints[athPoints.length - 1].date !== runningMaxDate) {
+        athPoints.push({
+            date: runningMaxDate,
+            price: runningMax,
+            index: priceData.length - 1
+        });
+    }
+    
+    console.log(`🏔️ Found ${athPoints.length} all-time highs:`, athPoints.map(p => `${p.date}: $${p.price}`));
+    
+    // Step 2: Create cycles from each ATH
+    for (let i = 0; i < athPoints.length; i++) {
+        const ath = athPoints[i];
+        const athIndex = ath.index;
         
-        if (minDrawdown < -threshold) {
-            const lowPoint = periodData.reduce((min, r) => 
-                r.close < min.close ? r : min, periodData[0]);
+        // Find the next ATH or end of data
+        const nextAthIndex = i < athPoints.length - 1 ? athPoints[i + 1].index : priceData.length;
+        
+        // Get all data between this ATH and the next (or end)
+        const cycleData = priceData.slice(athIndex, nextAthIndex);
+        
+        if (cycleData.length < 2) continue;
+        
+        // Find the lowest point in this cycle
+        let lowestPrice = ath.price;
+        let lowestDate = ath.date;
+        let lowestIndex = 0;
+        
+        for (let j = 0; j < cycleData.length; j++) {
+            if (cycleData[j].close < lowestPrice) {
+                lowestPrice = cycleData[j].close;
+                lowestDate = cycleData[j].date;
+                lowestIndex = j;
+            }
+        }
+        
+        // Calculate drawdown percentage
+        const drawdownPct = ((lowestPrice - ath.price) / ath.price) * 100;
+        
+        // Only create cycle if drawdown exceeds threshold
+        if (drawdownPct < -threshold) {
+            // Check if recovery happened within this cycle
+            let recoveryDate = null;
+            let recoveryPrice = null;
             
-            // Check if recovery happened
-            const recoveryPoint = periodData.find(r => 
-                r.date > lowPoint.date && r.close >= currentATH);
+            for (let j = lowestIndex; j < cycleData.length; j++) {
+                if (cycleData[j].close >= ath.price) {
+                    recoveryDate = cycleData[j].date;
+                    recoveryPrice = cycleData[j].close;
+                    break;
+                }
+            }
             
-            // Determine severity based on drawdown percentage
+            // Determine severity
             let severity = 'mild';
-            if (Math.abs(lowPoint.drawdown) >= 20) {
+            if (Math.abs(drawdownPct) >= 20) {
                 severity = 'severe';
-            } else if (Math.abs(lowPoint.drawdown) >= 10) {
+            } else if (Math.abs(drawdownPct) >= 10) {
                 severity = 'moderate';
             }
             
-            const basePrefix = baseETF.toLowerCase();
-            cycles.push({
+            // Calculate durations
+            const athToLowDays = Math.ceil((new Date(lowestDate) - new Date(ath.date)) / (1000 * 60 * 60 * 24));
+            const lowToRecoveryDays = recoveryDate ? Math.ceil((new Date(recoveryDate) - new Date(lowestDate)) / (1000 * 60 * 60 * 24)) : null;
+            
+            const basePrefix = etf.toLowerCase();
+            const cycle = {
                 cycle_number: cycleNumber++,
                 severity: severity,
-                [`${basePrefix}_ath_date`]: currentATHDate,
-                [`${basePrefix}_ath_price`]: currentATH,
-                [`${basePrefix}_low_date`]: lowPoint.date,
-                [`${basePrefix}_low_price`]: lowPoint.close,
-                [`${basePrefix}_drawdown_pct`]: lowPoint.drawdown,
-                [`${basePrefix}_recovery_date`]: recoveryPoint ? recoveryPoint.date : null,
-                [`${basePrefix}_recovery_price`]: recoveryPoint ? recoveryPoint.close : null,
+                [`${basePrefix}_ath_date`]: ath.date,
+                [`${basePrefix}_ath_price`]: ath.price,
+                [`${basePrefix}_low_date`]: lowestDate,
+                [`${basePrefix}_low_price`]: lowestPrice,
+                [`${basePrefix}_drawdown_pct`]: drawdownPct,
+                [`${basePrefix}_recovery_date`]: recoveryDate,
+                [`${basePrefix}_recovery_price`]: recoveryPrice,
                 threshold: threshold,
-                // Legacy fields for backward compatibility (QQQ format)
-                qqq_ath_date: currentATHDate,
-                qqq_ath_price: currentATH,
-                qqq_low_date: lowPoint.date,
-                qqq_low_price: lowPoint.close,
-                qqq_drawdown_pct: lowPoint.drawdown,
-                qqq_recovery_date: recoveryPoint ? recoveryPoint.date : null,
-                qqq_recovery_price: recoveryPoint ? recoveryPoint.close : null,
+                // Legacy fields for backward compatibility
+                qqq_ath_date: ath.date,
+                qqq_ath_price: ath.price,
+                qqq_low_date: lowestDate,
+                qqq_low_price: lowestPrice,
+                qqq_drawdown_pct: drawdownPct,
+                qqq_recovery_date: recoveryDate,
+                qqq_recovery_price: recoveryPrice,
                 // Generic fields
-                ath_date: currentATHDate,
-                ath_price: currentATH,
-                low_date: lowPoint.date,
-                low_price: lowPoint.close,
-                drawdown_pct: lowPoint.drawdown,
-                recovery_date: recoveryPoint ? recoveryPoint.date : null,
-                recovery_price: recoveryPoint ? recoveryPoint.close : null
-            });
+                ath_date: ath.date,
+                ath_price: ath.price,
+                low_date: lowestDate,
+                low_price: lowestPrice,
+                drawdown_pct: drawdownPct,
+                recovery_date: recoveryDate,
+                recovery_price: recoveryPrice,
+                // Duration fields
+                ath_to_low_days: athToLowDays,
+                low_to_recovery_days: lowToRecoveryDays
+            };
+            
+            cycles.push(cycle);
+            console.log(`✅ Created cycle ${cycle.cycle_number}: ${ath.date} ($${ath.price}) → ${lowestDate} ($${lowestPrice}) [${drawdownPct.toFixed(1)}%] ${recoveryDate ? `→ ${recoveryDate} ($${recoveryPrice})` : '→ Ongoing'}`);
         }
     }
-
+    
+    console.log(`🎯 Total cycles detected: ${cycles.length}`);
     return cycles;
 }
 
@@ -888,10 +658,6 @@ app.get('/api/summary/:threshold/:etf?', async (req, res) => {
     }
     
     try {
-        // AUTOMATIC DATA CLEANING: Clean corrupted data before analysis
-        console.log(`🧹 AUTOMATIC CLEANING: Checking ${etf} summary data for corruption...`);
-        await cleanCorruptedData(etf);
-        
         const summary = await executeSummaryQuery(etf, threshold);
         res.json(summary);
     } catch (error) {
@@ -905,35 +671,10 @@ async function executeSummaryQuery(etf, threshold) {
     const tableName = `${etf.toLowerCase()}_all_history`;
     
     return new Promise((resolve, reject) => {
-    // First get the cycles
+    // Simple query: just get all price data ordered by date
     const query = `
-            WITH base_data AS (
-            SELECT 
-                date,
-                close,
-                MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) as cummax,
-                ((close - MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) / 
-                 MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) * 100 as drawdown
-                FROM ${tableName}
-            ORDER BY date
-        ),
-        cycles AS (
-            SELECT 
-                date,
-                close,
-                cummax,
-                drawdown,
-                CASE WHEN close = cummax THEN 1 ELSE 0 END as is_ath
-                FROM base_data
-        )
-        SELECT 
-            date,
-            close,
-            cummax,
-            drawdown,
-            is_ath
-        FROM cycles
-        WHERE is_ath = 1 OR drawdown < -${threshold}
+        SELECT date, close
+        FROM ${tableName}
         ORDER BY date
     `;
 
@@ -944,7 +685,7 @@ async function executeSummaryQuery(etf, threshold) {
                 return;
         }
 
-            const cycles = processCycles(rows, threshold, etf, etf);
+            const cycles = detectCyclesFromScratch(rows, threshold, etf);
         
         if (cycles.length === 0) {
                 resolve({
@@ -1009,10 +750,6 @@ app.get('/api/chart-data/:threshold/:etf?', async (req, res) => {
     }
     
     try {
-        // AUTOMATIC DATA CLEANING: Clean corrupted data before analysis
-        console.log(`🧹 AUTOMATIC CLEANING: Checking ${etf} chart data for corruption...`);
-        await cleanCorruptedData(etf);
-        
         const chartData = await executeSingleETFChartDataQuery(etf, threshold);
         res.json(chartData);
     } catch (error) {
@@ -1033,35 +770,10 @@ async function executeSingleETFChartDataQuery(etf, threshold) {
             ORDER BY date
         `;
         
-        // Get cycle data
+        // Get cycle data - simple query
         const cycleQuery = `
-            WITH etf_data AS (
-                SELECT 
-                    date,
-                    close,
-                    MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) as cummax,
-                    ((close - MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) / 
-                     MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) * 100 as drawdown
-                FROM ${tableName}
-                ORDER BY date
-            ),
-            cycles AS (
-                SELECT 
-                    date,
-                    close,
-                    cummax,
-                    drawdown,
-                    CASE WHEN close = cummax THEN 1 ELSE 0 END as is_ath
-                FROM etf_data
-            )
-            SELECT 
-                date,
-                close,
-                cummax,
-                drawdown,
-                is_ath
-            FROM cycles
-            WHERE is_ath = 1 OR drawdown < -${threshold}
+            SELECT date, close
+            FROM ${tableName}
             ORDER BY date
         `;
 
@@ -1081,7 +793,7 @@ async function executeSingleETFChartDataQuery(etf, threshold) {
                 }
 
                 // Process the cycle data to identify complete cycles
-                const cycles = processCycles(cycleRows, threshold, etf, etf);
+                const cycles = detectCyclesFromScratch(cycleRows, threshold, etf);
                 
                 resolve({
                     threshold: threshold,
@@ -1170,35 +882,10 @@ function executeChartDataQuery(threshold, baseETF, leveragedETF, baseTable, leve
                 return res.status(500).json({ error: 'Database error' });
             }
 
-            // Get cycles for this threshold
+            // Get cycles for this threshold - simple query
             const cyclesQuery = `
-                WITH base_data AS (
-                    SELECT 
-                        date,
-                        close,
-                        MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) as cummax,
-                        ((close - MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) / 
-                         MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) * 100 as drawdown
-                    FROM ${baseTable}
-                    ORDER BY date
-                ),
-                cycles AS (
-                    SELECT 
-                        date,
-                        close,
-                        cummax,
-                        drawdown,
-                        CASE WHEN close = cummax THEN 1 ELSE 0 END as is_ath
-                    FROM base_data
-                )
-                SELECT 
-                    date,
-                    close,
-                    cummax,
-                    drawdown,
-                    is_ath
-                FROM cycles
-                WHERE is_ath = 1 OR drawdown < -${threshold}
+                SELECT date, close
+                FROM ${baseTable}
                 ORDER BY date
             `;
 
@@ -1208,7 +895,7 @@ function executeChartDataQuery(threshold, baseETF, leveragedETF, baseTable, leve
                     return res.status(500).json({ error: 'Database error' });
                 }
 
-                const cycles = processCycles(cycleRows, threshold, baseETF, leveragedETF);
+                const cycles = detectCyclesFromScratch(cycleRows, threshold, baseETF);
 
                 res.json({
                     threshold: threshold,
@@ -1272,34 +959,9 @@ app.post('/api/analyze', (req, res) => {
     }
 
     const query = `
-        WITH qqq_data AS (
-            SELECT 
-                date,
-                close,
-                MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) as cummax,
-                ((close - MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) / 
-                 MAX(close) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)) * 100 as drawdown
-            FROM qqq_all_history
-            WHERE 1=1 ${dateFilter}
-            ORDER BY date
-        ),
-        cycles AS (
-            SELECT 
-                date,
-                close,
-                cummax,
-                drawdown,
-                CASE WHEN close = cummax THEN 1 ELSE 0 END as is_ath
-            FROM qqq_data
-        )
-        SELECT 
-            date,
-            close,
-            cummax,
-            drawdown,
-            is_ath
-        FROM cycles
-        WHERE is_ath = 1 OR drawdown < -${threshold}
+        SELECT date, close
+        FROM qqq_all_history
+        WHERE 1=1 ${dateFilter}
         ORDER BY date
     `;
 
@@ -1309,7 +971,7 @@ app.post('/api/analyze', (req, res) => {
             return res.status(500).json({ error: 'Database error' });
         }
 
-        const cycles = processCycles(rows, threshold);
+        const cycles = detectCyclesFromScratch(rows, threshold, 'QQQ');
         
         res.json({
             threshold: threshold,

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   stock-analysis-app:
     build: .
-    image: stock-analysis:duplicate-cycles-fixed
+    image: stock-analysis:cycle-detection-completely-fixed
     container_name: stock-analysis-webapp
     ports:
       - "3000:3000"
