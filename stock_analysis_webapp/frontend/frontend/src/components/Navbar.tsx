@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Menu, X, BarChart3, TrendingUp, Activity, Home, Calculator } from 'lucide-react'
+import { Menu, X, BarChart3, TrendingUp, Activity, Home, Calculator, Database } from 'lucide-react'
 import { useThreshold } from '../contexts/ThresholdContext'
 import { useETF } from '../contexts/ETFContext'
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: Home },
-  { name: 'Cycles', href: '/cycles', icon: TrendingUp },
-  { name: 'Simulation', href: '/simulation', icon: Calculator },
-]
+interface NASDAQSymbol {
+  symbol: string
+  name: string
+  sector?: string
+  marketCap?: string
+  exchange?: string
+  isActive?: boolean
+}
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -17,71 +20,150 @@ export default function Navbar() {
   const { selectedETF, setSelectedETF, availableETFs, isValidETF, fetchStockData, isLoading } = useETF()
   const [inputValue, setInputValue] = useState(selectedETF)
   const [symbolStatus, setSymbolStatus] = useState<'valid' | 'unknown' | 'invalid' | 'loading'>('valid')
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState<NASDAQSymbol[]>([])
+
+  const navigation = [
+    { name: 'Dashboard', href: '/', icon: Home },
+    { name: 'Cycles', href: '/cycles', icon: BarChart3 },
+    { name: 'Simulation', href: '/simulation', icon: Calculator }
+    // { name: 'Admin', href: '/admin', icon: Database } // Temporarily commented out
+  ]
 
   // Sync input value with selected ETF
   useEffect(() => {
     setInputValue(selectedETF)
   }, [selectedETF])
 
+  // Search symbols from database
+  const searchSymbols = async (query: string) => {
+    if (!query || query.length < 1) {
+      setSearchResults([])
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/symbols?query=${encodeURIComponent(query)}&limit=15`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === 'success') {
+          setSearchResults(data.symbols)
+        } else {
+          setSearchResults([])
+        }
+      } else {
+        setSearchResults([])
+      }
+    } catch (error) {
+      console.error('Error searching symbols:', error)
+      setSearchResults([])
+    }
+  }
+
+  // Debounced search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      searchSymbols(searchTerm)
+    }, 300)
+
+    return () => clearTimeout(timeoutId)
+  }, [searchTerm])
+
   // Check symbol status as user types
   useEffect(() => {
     const checkSymbol = async () => {
-      if (!inputValue || inputValue === selectedETF) {
-        setSymbolStatus('valid')
+      if (!inputValue.trim()) {
+        setSymbolStatus('unknown')
         return
       }
 
       const upperSymbol = inputValue.toUpperCase().trim()
-      if (!upperSymbol) {
-        setSymbolStatus('invalid')
-        return
-      }
-
-      // Check if already in database by making an API call
-      try {
-        const response = await fetch(`/api/cycles/5/${upperSymbol}`)
-        if (response.ok) {
-          setSymbolStatus('valid')
-        } else {
-          setSymbolStatus('unknown')
-        }
-      } catch (error) {
-        setSymbolStatus('unknown')
-      }
-    }
-
-    const timeoutId = setTimeout(checkSymbol, 500) // Debounce
-    return () => clearTimeout(timeoutId)
-  }, [inputValue, selectedETF])
-
-  const handleStockSymbolSubmit = async (symbol: string) => {
-    const upperSymbol = symbol.toUpperCase().trim()
-    if (!upperSymbol) return
-
-    setSymbolStatus('loading')
-
-    // First check if symbol exists in database
-    try {
-      const response = await fetch(`/api/cycles/5/${upperSymbol}`)
-      if (response.ok) {
-        // Symbol exists, select it immediately
-        setSelectedETF(upperSymbol)
+      
+      if (upperSymbol === selectedETF) {
         setSymbolStatus('valid')
         return
       }
-    } catch (error) {
-      console.log('Symbol not in database, will try to fetch')
+
+      setSymbolStatus('loading')
+      
+      try {
+        const isValid = await isValidETF(upperSymbol)
+        setSymbolStatus(isValid ? 'valid' : 'invalid')
+      } catch (error) {
+        setSymbolStatus('invalid')
+      }
     }
 
-    // Symbol not in database, try to fetch it
-    const success = await fetchStockData(upperSymbol)
-    if (success) {
-      setSelectedETF(upperSymbol)
-      setSymbolStatus('valid')
-    } else {
+    const timeoutId = setTimeout(checkSymbol, 500)
+    return () => clearTimeout(timeoutId)
+  }, [inputValue, selectedETF, isValidETF])
+
+  const handleStockSymbolSubmit = async (symbol: string) => {
+    if (!symbol.trim()) return
+    
+    const upperSymbol = symbol.trim().toUpperCase()
+    setSelectedETF(upperSymbol)
+    setSymbolStatus('loading')
+    setShowSuggestions(false)
+    
+    try {
+      // First check if we have data in our database
+      const response = await fetch(`/api/single-etf-cycles?symbol=${upperSymbol}&threshold=${threshold}`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.cycles && data.cycles.length > 0) {
+          // We have data, symbol is valid
+          setSymbolStatus('valid')
+          return
+        }
+      }
+      
+      // If no data in database, try to fetch from Stooq
+      const fetchResponse = await fetch('/api/fetch-single-etf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: upperSymbol })
+      })
+      
+      if (fetchResponse.ok) {
+        const fetchData = await fetchResponse.json()
+        if (fetchData.status === 'success') {
+          // Successfully fetched new data
+          setSymbolStatus('valid')
+          // Add a small delay to show the success state
+          setTimeout(() => {
+            setSymbolStatus('valid')
+          }, 500)
+        } else {
+          // Symbol not found in Stooq
+          setSymbolStatus('invalid')
+          console.log(`Symbol "${upperSymbol}" not found in Stooq`)
+        }
+      } else {
+        setSymbolStatus('invalid')
+      }
+    } catch (error) {
+      console.error('Error checking symbol:', error)
       setSymbolStatus('invalid')
     }
   }
+
+  const handleSymbolSelect = (symbol: NASDAQSymbol) => {
+    setInputValue(symbol.symbol)
+    setSearchTerm(symbol.symbol)
+    setShowSuggestions(false)
+    handleStockSymbolSubmit(symbol.symbol)
+  }
+
+  // Filter symbols to NASDAQ-only and provide suggestions
+  const filteredSymbols = searchResults.filter(symbol => 
+    // Only show NASDAQ symbols (exclude some international symbols)
+    !symbol.symbol.includes('.') && 
+    symbol.symbol.length <= 5 &&
+    symbol.sector !== 'International'
+  ).slice(0, 10) // Limit to 10 results
 
   return (
     <nav className="bg-white shadow-medium border-b border-gray-100 fixed w-full top-0 z-50">
@@ -128,8 +210,14 @@ export default function Navbar() {
                 id="stock-input"
                 type="text"
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value.toUpperCase())}
-                placeholder="Any stock symbol..."
+                onChange={(e) => {
+                  const value = e.target.value.toUpperCase()
+                  setInputValue(value)
+                  setSearchTerm(value)
+                  setShowSuggestions(value.length >= 1)
+                }}
+                onFocus={() => setShowSuggestions(inputValue.length >= 1)}
+                placeholder="Any NASDAQ symbol..."
                 disabled={symbolStatus === 'loading'}
                 className={`input-field w-32 py-1 px-2 text-sm font-mono ${
                   symbolStatus === 'loading' 
@@ -154,6 +242,30 @@ export default function Navbar() {
                   }
                 }}
               />
+              
+              {/* Symbol Suggestions Dropdown */}
+              {showSuggestions && filteredSymbols.length > 0 && (
+                <div className="absolute z-50 w-80 mt-2 bg-white border border-gray-200 rounded-lg shadow-2xl max-h-64 overflow-auto backdrop-blur-sm">
+                  {filteredSymbols.map((symbol) => (
+                    <div
+                      key={symbol.symbol}
+                      onClick={() => handleSymbolSelect(symbol)}
+                      className="px-4 py-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition-all duration-200 first:rounded-t-lg last:rounded-b-lg"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-bold text-base text-gray-900">{symbol.symbol}</div>
+                          <div className="text-sm text-gray-600">{symbol.name}</div>
+                        </div>
+                        <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                          {symbol.sector}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               {symbolStatus === 'loading' && (
                 <div className="absolute -bottom-5 left-0 text-xs text-blue-600">
                   Fetching data...
