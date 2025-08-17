@@ -7,7 +7,6 @@ import { useETF } from '../contexts/ETFContext'
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Cycles', href: '/cycles', icon: TrendingUp },
-  { name: 'Charts', href: '/charts', icon: BarChart3 },
   { name: 'Simulation', href: '/simulation', icon: Calculator },
 ]
 

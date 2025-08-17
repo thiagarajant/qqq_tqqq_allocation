@@ -110,6 +110,35 @@ qqq_tqqq_allocation/
 - **Smart Fallbacks**: Uses cycle data as last resort when external APIs fail
 - **Duplicate Cycle Prevention**: Fixed algorithm to prevent duplicate cycles from being displayed
 - **Unique Cycle Tracking**: Uses Set-based tracking to ensure each cycle range is processed only once
+- **Proper Cycle Ordering**: Cycles are now sorted by ATH date (most recent first) with sequential numbering
+- **Algorithm Restructuring**: Separated ATH-based and local high cycle detection into two distinct passes
+- **Regression Recovery**: Restored working cycle detection logic after failed algorithm rewrite
+- **Minimal Duplicate Prevention**: Added Set-based tracking without breaking core functionality
+- **Integrated Charts**: Added interactive price charts directly to cycle analysis popups
+- **Cycle Highlighting**: Charts highlight ATH, low, recovery points and cycle periods
+- **Streamlined Navigation**: Removed separate Charts page for better UX
+- **Cycle Logic Restoration**: Reverted all complex cycle detection changes to original working version
+- **Data Cleaning Fixed**: Corrected flawed logic that wasn't removing corrupted future dates
+- **Corrupted Data Removal**: Now properly removes impossible dates (2025+ dates, pre-1990 dates)
+- **Realistic Cycles**: Cycles should now show proper historical data without future dates
+- **Recovery Data Fixed**: Identified and fixed critical SQL query issue that was filtering out recovery data
+- **Complete Cycle Detection**: Now includes all data points needed for proper recovery detection
+- **Varied Low Points**: Cycles should now show different low prices/dates instead of identical values
+- **Mixed Recovery Status**: Some cycles should show recovery dates, others "Ongoing"
+- **ATH Detection Fixed**: Corrected logic to only identify genuine all-time highs, not local peaks
+- **True ATH Recognition**: Now requires price to exceed previous running maximum to be considered ATH
+- **Proper Cycle Creation**: Should create cycles only from real ATHs, not temporary bounces
+- **Cycle Detection Completely Rewritten**: Replaced flawed algorithm with clean, simple approach from scratch
+- **Fresh Algorithm Design**: New logic finds true ATHs, creates non-overlapping cycles, and properly detects recovery
+- **Simplified Data Processing**: Removed complex SQL queries, now processes raw price data directly
+- **Better Logging**: Added extensive console logging to track cycle detection process
+- **Data Cleaning Removed**: Eliminated all corrupted data handling since Stooq data is correct
+- **Cleaner Codebase**: Removed unnecessary data validation and cleaning logic
+- **Trust Stooq Data**: Now accepts all valid data from Stooq without artificial filtering
+- **Cycle Detection Fixed**: Fixed all references to old `processCycles` function
+- **Simplified All Queries**: Replaced all complex SQL with simple `SELECT date, close` queries
+- **Consistent Algorithm**: All endpoints now use the new `detectCyclesFromScratch` function
+- **No More Errors**: Application runs without reference errors or broken logic
 
 ## 🚀 **Performance Features**
 - Code splitting and lazy loading
