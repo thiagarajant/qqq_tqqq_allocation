@@ -139,6 +139,9 @@ qqq_tqqq_allocation/
 - **Simplified All Queries**: Replaced all complex SQL with simple `SELECT date, close` queries
 - **Consistent Algorithm**: All endpoints now use the new `detectCyclesFromScratch` function
 - **No More Errors**: Application runs without reference errors or broken logic
+- **Database Cleared**: Removed all corrupted historical data for fresh start
+- **Clean Restart**: Server restarted with empty database and fixed cycle detection
+- **Fresh Data**: Will now fetch clean data from Stooq without corruption
 
 ## 🚀 **Performance Features**
 - Code splitting and lazy loading
