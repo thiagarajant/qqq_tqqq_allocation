@@ -53,12 +53,16 @@ interface SimulationResult {
   durationYears: number;
 }
 
-const Simulation: React.FC = () => {
+interface SimulationProps {
+  selectedSymbol?: string;
+}
+
+const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
   const { threshold, setThreshold, availableThresholds } = useThreshold();
   const { selectedETF, availableETFs, isLoading: etfLoading } = useETF();
   
   const [selectedETFPair, setSelectedETFPair] = useState<ETFPair>({
-    baseETF: '',
+    baseETF: selectedSymbol || '',
     leveragedETF: '',
     description: '',
     leverageRatio: 'Custom'
@@ -66,7 +70,7 @@ const Simulation: React.FC = () => {
   const [availableETFPairs, setAvailableETFPairs] = useState<ETFPair[]>([]);
   const [investmentAmount, setInvestmentAmount] = useState<number>(10000);
   const [startDate, setStartDate] = useState<string>('2020-01-01');
-  const [endDate, setEndDate] = useState<string>('2024-12-31');
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +79,15 @@ const Simulation: React.FC = () => {
 
   const [monthlyInvestment, setMonthlyInvestment] = useState<number>(0);
   const [useMonthlyInvestment, setUseMonthlyInvestment] = useState(false);
+  
+  // State for smart strategy options (only shown after initial simulation)
+  const [showSmartStrategyOptions, setShowSmartStrategyOptions] = useState(false);
+  const [smartStrategyThreshold, setSmartStrategyThreshold] = useState<number>(5);
+  const [secondarySymbol, setSecondarySymbol] = useState<string>('');
+  
+  // State for dropdown visibility
+  const [showBaseSuggestions, setShowBaseSuggestions] = useState(false);
+  const [showSecondarySuggestions, setShowSecondarySuggestions] = useState(false);
 
   // Fetch available ETF pairs for simulation
   useEffect(() => {
@@ -91,6 +104,25 @@ const Simulation: React.FC = () => {
     };
     fetchETFPairs();
   }, []);
+
+  // Update selectedETFPair when selectedSymbol prop changes
+  useEffect(() => {
+    if (selectedSymbol && selectedSymbol !== selectedETFPair.baseETF) {
+      console.log(`🔄 Setting base ETF to ${selectedSymbol} from Dashboard`)
+      setSelectedETFPair(prev => ({
+        ...prev,
+        baseETF: selectedSymbol,
+        leveragedETF: '', // Clear leveragedETF when symbol changes
+        description: '',
+        leverageRatio: 'Custom'
+      }))
+      // Clear any previous errors when symbol changes
+      setError(null)
+      setSimulationResult(null)
+      setSecondarySymbol('') // Also clear secondary symbol
+      console.log(`🧹 Cleared all states for new symbol: ${selectedSymbol}`)
+    }
+  }, [selectedSymbol, selectedETFPair.baseETF])
 
   // Auto-generate ETF pairs from available symbols
   useEffect(() => {
@@ -137,12 +169,78 @@ const Simulation: React.FC = () => {
   }, [availableETFs]);
 
   const runSimulation = async () => {
-    if (!investmentAmount || !startDate || !endDate || !threshold) {
+    if (!investmentAmount || !startDate || !endDate) {
       setError('Please fill in all required fields');
       return;
     }
     
-    if (!selectedETFPair.baseETF || !selectedETFPair.leveragedETF) {
+    if (!selectedETFPair.baseETF) {
+      setError('Please select a base symbol');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    console.log(`🚀 Starting simulation for ${selectedETFPair.baseETF}`);
+
+    try {
+      // For initial simulation, use the same logic as smart strategy but with same symbol
+      // This ensures consistency and accuracy in calculations
+      console.log(`📡 Running initial simulation using /api/simulate for ${selectedETFPair.baseETF}`);
+      const response = await fetch('/api/simulate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: investmentAmount,
+          startDate,
+          endDate,
+          threshold: 5, // Default threshold for initial simulation
+          monthlyInvestment: useMonthlyInvestment ? monthlyInvestment : 0,
+          baseETF: selectedETFPair.baseETF,
+          leveragedETF: selectedETFPair.baseETF // Use same symbol for baseline performance
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Initial simulation failed');
+      }
+
+      const result = await response.json();
+      
+      // Transform the result to match our expected format for initial simulation
+      const transformedResult = {
+        startDate,
+        endDate,
+        initialInvestment: investmentAmount,
+        monthlyInvestment: useMonthlyInvestment ? monthlyInvestment : undefined,
+        totalInvested: result.totalInvested || result.initialInvestment,
+        strategy: `Buy and Hold ${selectedETFPair.baseETF}`,
+        baseETFFinalValue: result.baseETFFinalValue || result.qqqFinalValue || 0,
+        baseETFTotalReturn: (result.baseETFFinalValue || result.qqqFinalValue || 0) - (result.totalInvested || result.initialInvestment),
+        baseETFTotalReturnPct: result.baseETFTotalReturnPct || result.qqqTotalReturnPct || 0,
+        baseETFAnnualizedReturn: result.baseETFAnnualizedReturn || result.qqqAnnualizedReturn || 0,
+        durationDays: result.durationDays || 0,
+        durationYears: result.durationYears || 0,
+        strategySwitches: 0
+      };
+      
+      setSimulationResult(transformedResult);
+      console.log('Initial simulation result (using smart strategy logic):', transformedResult);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Simulation failed';
+      console.log(`❌ Setting error: ${errorMessage}`);
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Run smart strategy function
+  const runSmartStrategy = async () => {
+    if (!selectedETFPair.baseETF || !secondarySymbol) {
       setError('Please select both base and secondary symbols');
       return;
     }
@@ -160,22 +258,22 @@ const Simulation: React.FC = () => {
           amount: investmentAmount,
           startDate,
           endDate,
-          threshold,
+          threshold: smartStrategyThreshold,
           monthlyInvestment: useMonthlyInvestment ? monthlyInvestment : 0,
           baseETF: selectedETFPair.baseETF,
-          leveragedETF: selectedETFPair.leveragedETF
+          leveragedETF: secondarySymbol
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Simulation failed');
+        throw new Error(errorData.error || 'Smart strategy simulation failed');
       }
 
       const result = await response.json();
       setSimulationResult(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Simulation failed');
+      setError(err instanceof Error ? err.message : 'Smart strategy simulation failed');
     } finally {
       setIsLoading(false);
     }
@@ -228,10 +326,11 @@ const Simulation: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
+        {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Portfolio Simulation</h1>
-          <p className="mt-2 text-gray-600">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Portfolio Simulation</h1>
+          <p className="text-gray-600">
             Compare different investment strategies and see how they would have performed historically.
           </p>
         </div>
@@ -267,15 +366,22 @@ const Simulation: React.FC = () => {
                             description: `${newBase} vs ${selectedETFPair.leveragedETF}`,
                             leverageRatio: 'Custom'
                           });
-                          // Clear previous simulation results when symbols change
+                          setShowBaseSuggestions(newBase.length > 0);
                           setSimulationResult(null);
+                        }}
+                        onFocus={() => setShowBaseSuggestions(selectedETFPair.baseETF.length > 0)}
+                        onBlur={() => setTimeout(() => setShowBaseSuggestions(false), 200)}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            setShowBaseSuggestions(false);
+                          }
                         }}
                         placeholder="Type symbol (e.g., QQQ, AAPL, TSLA)..."
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       />
                       
                       {/* Autocomplete Suggestions */}
-                      {selectedETFPair.baseETF && (
+                      {showBaseSuggestions && selectedETFPair.baseETF && (
                         <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
                           {availableETFs
                             .filter(etf => 
@@ -293,6 +399,7 @@ const Simulation: React.FC = () => {
                                     description: `${etf.symbol} vs ${selectedETFPair.leveragedETF}`,
                                     leverageRatio: 'Custom'
                                   });
+                                  setShowBaseSuggestions(false);
                                   setSimulationResult(null);
                                 }}
                                 className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b border-gray-100 last:border-b-0"
@@ -305,73 +412,15 @@ const Simulation: React.FC = () => {
                       )}
                     </div>
                   </div>
-
-                  {/* Leveraged/Secondary Symbol Selection */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Secondary Symbol (Switch Target)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={selectedETFPair.leveragedETF}
-                        onChange={(e) => {
-                          const newLeveraged = e.target.value;
-                          setSelectedETFPair({
-                            ...selectedETFPair,
-                            leveragedETF: newLeveraged,
-                            description: `${selectedETFPair.baseETF} vs ${newLeveraged}`,
-                            leverageRatio: 'Custom'
-                          });
-                          // Clear previous simulation results when symbols change
-                          setSimulationResult(null);
-                        }}
-                        placeholder="Type symbol (e.g., QQQ, AAPL, TSLA)..."
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      />
-                      
-                      {/* Autocomplete Suggestions */}
-                      {selectedETFPair.leveragedETF && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
-                          {availableETFs
-                            .filter(etf => 
-                              etf.symbol.toLowerCase().includes(selectedETFPair.leveragedETF.toLowerCase()) ||
-                              etf.name.toLowerCase().includes(selectedETFPair.leveragedETF.toLowerCase())
-                            )
-                            .slice(0, 10) // Limit to 10 suggestions
-                            .map((etf) => (
-                              <div
-                                key={etf.symbol}
-                                onClick={() => {
-                                  setSelectedETFPair({
-                                    ...selectedETFPair,
-                                    leveragedETF: etf.symbol,
-                                    description: `${selectedETFPair.baseETF} vs ${etf.symbol}`,
-                                    leverageRatio: 'Custom'
-                                  });
-                                  setSimulationResult(null);
-                                }}
-                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b border-gray-100 last:border-b-0"
-                              >
-                                <div className="font-medium text-gray-900">{etf.symbol}</div>
-                                <div className="text-xs text-gray-500">{etf.name}</div>
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-
 
                   {/* Current Selection Info */}
-                  {selectedETFPair.baseETF && selectedETFPair.leveragedETF && (
+                  {selectedETFPair.baseETF && (
                     <div className="p-2 bg-gray-50 rounded border border-gray-200">
                       <p className="text-xs text-gray-600">
-                        <span className="font-medium">Strategy:</span> {selectedETFPair.baseETF} → {selectedETFPair.leveragedETF}
+                        <span className="font-medium">Symbol:</span> {selectedETFPair.baseETF}
                       </p>
                       <p className="text-xs text-gray-500">
-                        {selectedETFPair.description}
+                        Ready to simulate performance
                       </p>
                     </div>
                   )}
@@ -420,23 +469,7 @@ const Simulation: React.FC = () => {
                 </div>
               </div>
 
-              {/* Drawdown Threshold */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Drawdown Threshold
-                </label>
-                <select
-                  value={threshold}
-                  onChange={(e) => setThreshold(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {availableThresholds.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+
 
               {/* Monthly Investment */}
               <div className="mb-6">
@@ -504,7 +537,7 @@ const Simulation: React.FC = () => {
                 {/* Results Summary */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Base ETF Only */}
-                  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${getReturnBgColor(simulationResult.baseETFFinalValue ? simulationResult.baseETFTotalReturnPct : 0)}`}>
+                  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${getReturnBgColor(simulationResult.baseETFFinalValue ? (simulationResult.baseETFTotalReturnPct || 0) : 0)}`}>
                     <div className="text-center">
                       <h4 className="text-sm font-medium text-gray-600 mb-2">{selectedETFPair.baseETF} Only</h4>
                       <p className="text-2xl font-bold text-gray-900 mb-1">
@@ -520,7 +553,7 @@ const Simulation: React.FC = () => {
                   </div>
 
                   {/* Leveraged ETF Only */}
-                  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${getReturnBgColor(simulationResult.leveragedETFFinalValue ? simulationResult.leveragedETFTotalReturnPct : 0)}`}>
+                  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${getReturnBgColor(simulationResult.leveragedETFFinalValue ? (simulationResult.leveragedETFTotalReturnPct || 0) : 0)}`}>
                     <div className="text-center">
                       <h4 className="text-sm font-medium text-gray-600 mb-2">{selectedETFPair.leveragedETF} Only</h4>
                       <p className="text-2xl font-bold text-gray-900 mb-1">
@@ -577,7 +610,7 @@ const Simulation: React.FC = () => {
                         </div>
                         <div className="flex justify-between">
                           <span>Duration:</span>
-                          <span className="font-medium">{simulationResult.durationYears.toFixed(1)} years</span>
+                          <span className="font-medium">{(simulationResult.durationYears || 0).toFixed(1)} years</span>
                         </div>
                       </div>
                     </div>
@@ -602,21 +635,123 @@ const Simulation: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Smart Strategy Options */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Smart Strategy Options</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Configure smart switching strategy parameters to see how switching between symbols during drawdowns affects returns.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Secondary Symbol Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Secondary Symbol (Switch Target)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={secondarySymbol}
+                          onChange={(e) => {
+                            setSecondarySymbol(e.target.value);
+                            setShowSecondarySuggestions(e.target.value.length > 0);
+                          }}
+                          onFocus={() => setShowSecondarySuggestions(secondarySymbol.length > 0)}
+                          onBlur={() => setTimeout(() => setShowSecondarySuggestions(false), 200)}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              setShowSecondarySuggestions(false);
+                            }
+                          }}
+                          placeholder="Type symbol (e.g., QQQ, AAPL, TSLA)..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                        
+                        {/* Autocomplete Suggestions */}
+                        {showSecondarySuggestions && secondarySymbol && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                            {availableETFs
+                              .filter(etf => 
+                                etf.symbol.toLowerCase().includes(secondarySymbol.toLowerCase()) ||
+                                etf.name.toLowerCase().includes(secondarySymbol.toLowerCase())
+                              )
+                              .slice(0, 10)
+                              .map((etf) => (
+                                <div
+                                  key={etf.symbol}
+                                  onClick={() => {
+                                    setSecondarySymbol(etf.symbol);
+                                    setShowSecondarySuggestions(false);
+                                  }}
+                                  className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b border-gray-100 last:border-b-0"
+                                >
+                                  <div className="font-medium text-gray-900">{etf.symbol}</div>
+                                  <div className="text-xs text-gray-500">{etf.name}</div>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Drawdown Threshold */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Drawdown Threshold
+                      </label>
+                      <select
+                        value={smartStrategyThreshold}
+                        onChange={(e) => setSmartStrategyThreshold(Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        {availableThresholds.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Run Smart Strategy Button */}
+                  {secondarySymbol && (
+                    <div className="mt-6">
+                      <button
+                        onClick={() => runSmartStrategy()}
+                        disabled={isLoading}
+                        className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                      >
+                        {isLoading ? (
+                          <>
+                            <RefreshCw className="animate-spin -ml-1 mr-2 h-4 w-4" />
+                            Running Smart Strategy...
+                          </>
+                        ) : (
+                          <>
+                            <TrendingUp className="-ml-1 mr-2 h-4 w-4" />
+                            Run Smart Strategy: {selectedETFPair.baseETF} ↔ {secondarySymbol}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Strategy Explanation */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
                   <h3 className="text-lg font-semibold text-blue-900 mb-3">Strategy Explanation</h3>
                   <div className="text-sm text-blue-800 space-y-2">
                     <p>
-                      <strong>Smart Strategy:</strong> Start with {selectedETFPair.baseETF}, switch to {selectedETFPair.leveragedETF} when {selectedETFPair.baseETF} drops {threshold}%+ from its all-time high, 
+                      <strong>Smart Strategy:</strong> Start with {selectedETFPair.baseETF}, switch to {secondarySymbol || 'secondary symbol'} when {selectedETFPair.baseETF} drops {smartStrategyThreshold}%+ from its all-time high, 
                       then switch back to {selectedETFPair.baseETF} when {selectedETFPair.baseETF} recovers to a new all-time high.
                     </p>
                     <p>
-                      <strong>Rationale:</strong> {selectedETFPair.leveragedETF}'s leverage amplifies both gains and losses. During major drawdowns, 
-                      the strategy aims to capture {selectedETFPair.leveragedETF}'s amplified recovery while avoiding prolonged exposure to leverage decay.
+                      <strong>Rationale:</strong> {secondarySymbol || 'Secondary symbol'}'s leverage amplifies both gains and losses. During major drawdowns, 
+                      the strategy aims to capture {secondarySymbol || 'secondary symbol'}'s amplified recovery while avoiding prolonged exposure to leverage decay.
                     </p>
                     <p className="text-xs text-blue-600">
                       Period: {simulationResult.startDate} to {simulationResult.endDate} 
-                      ({simulationResult.durationYears.toFixed(1)} years)
+                      ({(simulationResult.durationYears || 0).toFixed(1)} years)
                     </p>
                   </div>
                 </div>
@@ -629,12 +764,12 @@ const Simulation: React.FC = () => {
                   Enter your investment parameters and click "Run Simulation" to see how different strategies would have performed.
                 </p>
                 <div className="text-sm text-gray-500 space-y-1">
-                  {selectedETFPair.baseETF && selectedETFPair.leveragedETF ? (
-                    <p>• Compare {selectedETFPair.baseETF} vs {selectedETFPair.leveragedETF} performance</p>
+                  {selectedETFPair.baseETF ? (
+                    <p>• Simulate {selectedETFPair.baseETF} performance</p>
                   ) : (
-                    <p>• Select symbols to compare performance</p>
+                    <p>• Select a symbol to simulate performance</p>
                   )}
-                  <p>• Test smart switching strategies</p>
+                  <p>• Configure smart switching strategies after initial simulation</p>
                   <p>• See detailed return calculations</p>
                 </div>
               </div>

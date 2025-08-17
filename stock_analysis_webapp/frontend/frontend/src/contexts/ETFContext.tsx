@@ -1,75 +1,126 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 
-interface ETFInfo {
+interface ETF {
   symbol: string
   name: string
-  description: string
-  category?: string
+  sector?: string
+  marketCap?: string
+  exchange?: string
+  isActive?: boolean
 }
 
 interface ETFContextType {
   selectedETF: string
   setSelectedETF: (symbol: string) => void
-  availableETFs: ETFInfo[]
+  availableETFs: ETF[]
+  fetchAvailableETFs: () => Promise<void>
+  isValidETF: (symbol: string) => Promise<boolean>
+  fetchStockData: (symbol: string) => Promise<boolean>
   isLoading: boolean
   error: string | null
-  fetchAvailableETFs: () => Promise<void>
-  isValidETF: (symbol: string) => boolean
-  getETFInfo: (symbol: string) => ETFInfo | null
-  fetchStockData: (symbol: string) => Promise<boolean>
-  isValidSymbol: (symbol: string) => Promise<boolean>
 }
 
 const ETFContext = createContext<ETFContextType | undefined>(undefined)
 
-// Define available ETFs (extensible for future additions)
-const DEFAULT_ETFS: ETFInfo[] = [
-  {
-    symbol: 'QQQ',
-    name: 'Invesco QQQ Trust',
-    description: 'NASDAQ-100 Index ETF',
-    category: 'Large Cap Growth'
-  },
-  {
-    symbol: 'TQQQ',
-    name: 'ProShares UltraPro QQQ',
-    description: '3x Leveraged NASDAQ-100 ETF',
-    category: 'Leveraged'
-  },
-  {
-    symbol: 'SPY',
-    name: 'SPDR S&P 500 ETF Trust',
-    description: 'S&P 500 Index ETF',
-    category: 'Large Cap Blend'
+export const useETF = () => {
+  const context = useContext(ETFContext)
+  if (context === undefined) {
+    throw new Error('useETF must be used within an ETFProvider')
   }
-  // Future additions can go here automatically from database
-]
+  return context
+}
 
-export function ETFProvider({ children }: { children: ReactNode }) {
-  const [selectedETF, setSelectedETF] = useState<string>('QQQ')
-  const [availableETFs, setAvailableETFs] = useState<ETFInfo[]>(DEFAULT_ETFS)
+export const ETFProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [selectedETF, setSelectedETF] = useState('QQQ')
+  const [availableETFs, setAvailableETFs] = useState<ETF[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchAvailableETFs = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
     try {
-      const response = await fetch('/api/available-single-etfs')
+      setIsLoading(true)
+      setError(null)
+      
+      const response = await fetch('/api/symbols?limit=100')
       if (response.ok) {
         const data = await response.json()
-        // Update available ETFs based on what's actually in the database
-        setAvailableETFs(data.etfs || DEFAULT_ETFS)
+        if (data.status === 'success') {
+          setAvailableETFs(data.symbols)
+        } else {
+          setError('Failed to fetch symbols')
+        }
       } else {
-        // Fallback to default if API fails
-        setAvailableETFs(DEFAULT_ETFS)
+        setError('Failed to fetch symbols')
       }
     } catch (error) {
       console.error('Failed to fetch available ETFs:', error)
-      setError('Failed to load available ETFs')
-      setAvailableETFs(DEFAULT_ETFS)
+      setError('Failed to fetch symbols')
     } finally {
       setIsLoading(false)
+    }
+  }, [])
+
+  const isValidETF = useCallback(async (symbol: string): Promise<boolean> => {
+    if (!symbol) return false
+
+    try {
+      // First check if it's in our available symbols
+      const existsInDB = availableETFs.some(etf =>
+        etf.symbol.toUpperCase() === symbol.toUpperCase()
+      )
+
+      if (existsInDB) return true
+
+      // If not in our DB, check if it exists via API
+      const response = await fetch(`/api/symbols/${symbol.toUpperCase()}`)
+      if (response.ok) {
+        const data = await response.json()
+        return data.status === 'success'
+      }
+
+      return false
+    } catch (error) {
+      console.error('Error checking symbol validity:', error)
+      return false
+    }
+  }, [availableETFs])
+
+  const fetchStockData = useCallback(async (symbol: string): Promise<boolean> => {
+    if (!symbol) return false
+
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const response = await fetch('/api/fetch-single-etf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: symbol.toUpperCase() })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === 'success') {
+          // Add a small delay to show the success state
+          setTimeout(() => {
+            setIsLoading(false)
+          }, 500)
+          return true
+        } else {
+          setError(`Failed to fetch data for ${symbol}: ${data.message || 'Unknown error'}`)
+          setIsLoading(false)
+          return false
+        }
+      } else {
+        setError(`Failed to fetch data for ${symbol}`)
+        setIsLoading(false)
+        return false
+      }
+    } catch (error) {
+      console.error('Error fetching stock data:', error)
+      setError(`Error fetching data for ${symbol}`)
+      setIsLoading(false)
+      return false
     }
   }, [])
 
@@ -77,101 +128,16 @@ export function ETFProvider({ children }: { children: ReactNode }) {
     fetchAvailableETFs()
   }, [fetchAvailableETFs])
 
-  // Helper function to check if ETF exists in database
-  const isValidETF = (symbol: string) => {
-    return availableETFs.some(etf => etf.symbol.toLowerCase() === symbol.toLowerCase())
+  const value: ETFContextType = {
+    selectedETF,
+    setSelectedETF,
+    availableETFs,
+    fetchAvailableETFs,
+    isValidETF,
+    fetchStockData,
+    isLoading,
+    error
   }
 
-  // Helper function to get ETF info
-  const getETFInfo = (symbol: string) => {
-    return availableETFs.find(etf => etf.symbol.toLowerCase() === symbol.toLowerCase()) || null
-  }
-
-  // Function to fetch stock data from external source
-  const fetchStockData = useCallback(async (symbol: string): Promise<boolean> => {
-    if (!symbol || symbol.trim() === '') return false
-    
-    setIsLoading(true)
-    setError(null)
-    try {
-      const response = await fetch('/api/fetch-historical-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ symbol: symbol.toUpperCase() }),
-      })
-      
-      if (response.ok) {
-        const result = await response.json()
-        if (result.status === 'success') {
-          // Refresh available ETFs to include the new symbol
-          await fetchAvailableETFs()
-          // Small delay to ensure database operations are complete
-          await new Promise(resolve => setTimeout(resolve, 500))
-          return true
-        } else {
-          setError(result.message || 'Failed to fetch stock data')
-          return false
-        }
-      } else {
-        setError('Failed to fetch stock data')
-        return false
-      }
-    } catch (error) {
-      console.error('Error fetching stock data:', error)
-      setError('Network error while fetching stock data')
-      return false
-    } finally {
-      setIsLoading(false)
-    }
-  }, [fetchAvailableETFs])
-
-  // Function to check if a symbol is valid (exists in DB or can be fetched)
-  const isValidSymbol = useCallback(async (symbol: string): Promise<boolean> => {
-    if (!symbol || symbol.trim() === '') return false
-    
-    const upperSymbol = symbol.toUpperCase().trim()
-    
-    // First check if it's already in our database
-    if (isValidETF(upperSymbol)) {
-      return true
-    }
-    
-    // If not in database, try to fetch it
-    try {
-      const success = await fetchStockData(upperSymbol)
-      return success
-    } catch (error) {
-      console.error('Error validating symbol:', error)
-      return false
-    }
-  }, [isValidETF, fetchStockData])
-
-  return (
-    <ETFContext.Provider 
-      value={{ 
-        selectedETF, 
-        setSelectedETF, 
-        availableETFs, 
-        isLoading,
-        error,
-        fetchAvailableETFs,
-        isValidETF,
-        getETFInfo,
-        fetchStockData,
-        isValidSymbol
-      }}
-    >
-      {children}
-    </ETFContext.Provider>
-  )
-}
-
-export function useETF() {
-  const context = useContext(ETFContext)
-  if (context === undefined) {
-    throw new Error('useETF must be used within an ETFProvider')
-  }
-  return context
+  return <ETFContext.Provider value={value}>{children}</ETFContext.Provider>
 }

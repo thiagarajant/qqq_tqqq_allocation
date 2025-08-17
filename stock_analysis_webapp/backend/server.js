@@ -16,7 +16,263 @@ app.use(express.json());
 
 // Database connection
 const dbPath = path.join(__dirname, '../database/market_data.db');
-const db = new sqlite3.Database(dbPath);
+
+// Initialize database
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('Error opening database:', err.message);
+  } else {
+    console.log('Connected to SQLite database');
+    
+    // Create symbols table if it doesn't exist
+    const createSymbolsTable = `
+      CREATE TABLE IF NOT EXISTS symbols (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        sector TEXT,
+        market_cap TEXT,
+        exchange TEXT DEFAULT 'NASDAQ',
+        is_active BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    
+    const createSymbolsIndexes = `
+      CREATE INDEX IF NOT EXISTS idx_symbols_symbol ON symbols(symbol);
+      CREATE INDEX IF NOT EXISTS idx_symbols_sector ON symbols(sector);
+      CREATE INDEX IF NOT EXISTS idx_symbols_market_cap ON symbols(market_cap);
+      CREATE INDEX IF NOT EXISTS idx_symbols_exchange ON symbols(exchange);
+      CREATE INDEX IF NOT EXISTS idx_symbols_active ON symbols(is_active);
+    `;
+    
+    db.serialize(() => {
+      // Create symbols table
+      db.run(createSymbolsTable, (err) => {
+        if (err) {
+          console.error('Error creating symbols table:', err.message);
+        } else {
+          console.log('Symbols table ready');
+          
+          // Always insert initial symbols data
+          console.log('Populating symbols table with initial data...');
+              
+              const insertSymbols = `
+                INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active) VALUES
+                ('QQQ', 'Invesco QQQ Trust', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('TQQQ', 'ProShares UltraPro QQQ', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('SQQQ', 'ProShares UltraPro Short QQQ', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('SPY', 'SPDR S&P 500 ETF Trust', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('VTI', 'Vanguard Total Stock Market ETF', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('VOO', 'Vanguard S&P 500 ETF', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('ARKK', 'ARK Innovation ETF', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('IWM', 'iShares Russell 2000 ETF', 'ETF', 'ETF', 'NASDAQ', 1),
+                ('NVDA', 'NVIDIA Corporation', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('MSFT', 'Microsoft Corporation', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('AAPL', 'Apple Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('GOOG', 'Alphabet Inc. (Class C)', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('GOOGL', 'Alphabet Inc. (Class A)', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('AMZN', 'Amazon.com Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('META', 'Meta Platforms Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('AVGO', 'Broadcom Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('TSLA', 'Tesla Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('NFLX', 'Netflix Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
+                ('COST', 'Costco Wholesale Corporation', 'Consumer Staples', 'Large Cap', 'NASDAQ', 1),
+                ('PLTR', 'Palantir Technologies Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('ASML', 'ASML Holding N.V.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('AMD', 'Advanced Micro Devices Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('TMUS', 'T-Mobile US Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
+                ('CSCO', 'Cisco Systems Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('AZN', 'AstraZeneca PLC', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
+                ('LIN', 'Linde plc', 'Materials', 'Large Cap', 'NASDAQ', 1),
+                ('PEP', 'PepsiCo Inc.', 'Consumer Staples', 'Large Cap', 'NASDAQ', 1),
+                ('INTU', 'Intuit Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('SHOP', 'Shopify Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('TXN', 'Texas Instruments Incorporated', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('BKNG', 'Booking Holdings Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('ISRG', 'Intuitive Surgical Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
+                ('QCOM', 'QUALCOMM Incorporated', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('PDD', 'PDD Holdings Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('AMGN', 'Amgen Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
+                ('ADBE', 'Adobe Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('APP', 'AppLovin Corporation', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('ARM', 'Arm Holdings plc', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('GILD', 'Gilead Sciences Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
+                ('HON', 'Honeywell International Inc.', 'Industrials', 'Large Cap', 'NASDAQ', 1),
+                ('MU', 'Micron Technology Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
+                ('SE', 'Sea Limited', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('F', 'Ford Motor Company', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('GM', 'General Motors Company', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('JPM', 'JPMorgan Chase & Co.', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
+                ('BAC', 'Bank of America Corporation', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
+                ('WFC', 'Wells Fargo & Company', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
+                ('GS', 'Goldman Sachs Group Inc.', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
+                ('MS', 'Morgan Stanley', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
+                ('V', 'Visa Inc.', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
+                ('MA', 'Mastercard Incorporated', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
+                ('JNJ', 'Johnson & Johnson', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
+                ('PFE', 'Pfizer Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
+                ('UNH', 'UnitedHealth Group Incorporated', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
+                ('WMT', 'Walmart Inc.', 'Consumer Staples', 'Large Cap', 'NASDAQ', 1),
+                ('HD', 'The Home Depot Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('MCD', 'McDonald''s Corporation', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('SBUX', 'Starbucks Corporation', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('NKE', 'NIKE Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
+                ('CAT', 'Caterpillar Inc.', 'Industrials', 'Large Cap', 'NASDAQ', 1),
+                ('DE', 'Deere & Company', 'Industrials', 'Large Cap', 'NASDAQ', 1),
+                ('BA', 'Boeing Company', 'Industrials', 'Large Cap', 'NASDAQ', 1),
+                ('GE', 'General Electric Company', 'Industrials', 'Large Cap', 'NASDAQ', 1),
+                ('DIS', 'The Walt Disney Company', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
+                ('CMCSA', 'Comcast Corporation', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
+                ('VZ', 'Verizon Communications Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
+                ('T', 'AT&T Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1)
+              `;
+              
+              db.run('BEGIN TRANSACTION');
+              db.run(insertSymbols, (err) => {
+                if (err) {
+                  console.error('Error inserting initial symbols:', err.message);
+                  db.run('ROLLBACK');
+                } else {
+                  console.log('Initial symbols data inserted successfully');
+                  db.run('COMMIT');
+                }
+              });
+        }
+      });
+      
+      // Create indexes
+      db.run(createSymbolsIndexes, (err) => {
+        if (err) {
+          console.error('Error creating symbols indexes:', err.message);
+        } else {
+          console.log('Symbols indexes ready');
+        }
+      });
+      
+      // Create historical prices table
+      const createHistoricalPricesTable = `
+        CREATE TABLE IF NOT EXISTS historical_prices (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          date DATE NOT NULL,
+          open REAL,
+          high REAL,
+          low REAL,
+          close REAL,
+          volume INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(symbol, date)
+        )
+      `;
+      
+      const createHistoricalIndexes = `
+        CREATE INDEX IF NOT EXISTS idx_historical_prices_symbol ON historical_prices(symbol);
+        CREATE INDEX IF NOT EXISTS idx_historical_prices_date ON historical_prices(date);
+        CREATE INDEX IF NOT EXISTS idx_historical_prices_symbol_date ON historical_prices(symbol, date);
+        CREATE INDEX IF NOT EXISTS idx_historical_prices_close ON historical_prices(close);
+      `;
+      
+      db.run(createHistoricalPricesTable, (err) => {
+        if (err) {
+          console.error('Error creating historical prices table:', err.message);
+        } else {
+          console.log('Historical prices table ready');
+          
+          // Create indexes
+          db.run(createHistoricalIndexes, (err) => {
+            if (err) {
+              console.error('Error creating historical indexes:', err.message);
+            } else {
+              console.log('Historical indexes ready');
+            }
+          });
+        }
+      });
+      
+      // Create data freshness table
+      const createDataFreshnessTable = `
+        CREATE TABLE IF NOT EXISTS data_freshness (
+          symbol TEXT PRIMARY KEY,
+          last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+          data_source TEXT DEFAULT 'stooq',
+          status TEXT DEFAULT 'active',
+          error_count INTEGER DEFAULT 0,
+          last_error TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `;
+      
+      const createFreshnessIndexes = `
+        CREATE INDEX IF NOT EXISTS idx_data_freshness_last_updated ON data_freshness(last_updated);
+        CREATE INDEX IF NOT EXISTS idx_data_freshness_status ON data_freshness(status);
+        CREATE INDEX IF NOT EXISTS idx_data_freshness_error_count ON data_freshness(error_count);
+      `;
+      
+      db.run(createDataFreshnessTable, (err) => {
+        if (err) {
+          console.error('Error creating data freshness table:', err.message);
+        } else {
+          console.log('Data freshness table ready');
+          
+          // Create indexes
+          db.run(createFreshnessIndexes, (err) => {
+            if (err) {
+              console.error('Error creating freshness indexes:', err.message);
+            } else {
+              console.log('Freshness indexes ready');
+            }
+          });
+        }
+      });
+      
+      // Create views
+      const createLatestPricesView = `
+        CREATE VIEW IF NOT EXISTS latest_prices AS
+        SELECT 
+          symbol,
+          MAX(date) as latest_date,
+          close as latest_close,
+          volume as latest_volume
+        FROM historical_prices 
+        GROUP BY symbol
+      `;
+      
+      const createPriceStatisticsView = `
+        CREATE VIEW IF NOT EXISTS price_statistics AS
+        SELECT 
+          symbol,
+          MIN(date) as first_date,
+          MAX(date) as last_date,
+          COUNT(*) as total_days,
+          MIN(close) as min_close,
+          MAX(close) as max_close,
+          AVG(close) as avg_close,
+          AVG(volume) as avg_volume
+        FROM historical_prices 
+        GROUP BY symbol
+      `;
+      
+      db.run(createLatestPricesView, (err) => {
+        if (err) {
+          console.error('Error creating latest prices view:', err.message);
+        } else {
+          console.log('Latest prices view ready');
+        }
+      });
+      
+      db.run(createPriceStatisticsView, (err) => {
+        if (err) {
+          console.error('Error creating price statistics view:', err.message);
+        } else {
+          console.log('Price statistics view ready');
+        }
+      });
+    });
+  }
+});
 
 // Available thresholds for validation
 const VALID_THRESHOLDS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 25, 30];
@@ -1053,13 +1309,7 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Something went wrong!' });
 });
 
-// Serve static files (must be last to not interfere with API routes)
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
-
-// Catch-all route for SPA routing (must be last)
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
-});
+// These will be moved to the end after all API routes
 
 // Portfolio simulation endpoint
 app.post('/api/simulate', (req, res) => {
@@ -1329,6 +1579,718 @@ function calculatePortfolioSimulation(initialAmount, baseData, leveragedData, th
         durationYears: parseFloat(durationYears.toFixed(2))
     };
 }
+
+// New API endpoint: Search symbols
+app.get('/api/symbols', async (req, res) => {
+  try {
+    const { query = '', limit = 20, sector, marketCap } = req.query;
+    
+    let sql = `
+      SELECT symbol, name, sector, market_cap, exchange, is_active
+      FROM symbols 
+      WHERE is_active = 1
+    `;
+    
+    const params = [];
+    
+    if (query && query.length > 0) {
+      sql += ` AND (
+        symbol LIKE ? OR 
+        name LIKE ? OR 
+        sector LIKE ?
+      )`;
+      const searchTerm = `%${query.toUpperCase()}%`;
+      params.push(searchTerm, searchTerm, searchTerm);
+    }
+    
+    if (sector) {
+      sql += ` AND sector = ?`;
+      params.push(sector);
+    }
+    
+    if (marketCap) {
+      sql += ` AND market_cap = ?`;
+      params.push(marketCap);
+    }
+    
+    sql += ` ORDER BY 
+      CASE 
+        WHEN symbol = ? THEN 1
+        WHEN symbol LIKE ? THEN 2
+        WHEN name LIKE ? THEN 3
+        ELSE 4
+      END, symbol
+      LIMIT ?
+    `;
+    
+    const upperQuery = query.toUpperCase();
+    params.push(upperQuery, `${upperQuery}%`, `%${upperQuery}%`, parseInt(limit));
+    
+    // Use callback version for proper results
+    db.all(sql, params, (err, symbols) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({
+          status: 'error',
+          message: 'Database error',
+          error: err.message
+        });
+      }
+      
+      // Ensure symbols is always an array
+      const symbolsArray = Array.isArray(symbols) ? symbols : [];
+      
+      res.json({
+        status: 'success',
+        symbols: symbolsArray,
+        total: symbolsArray.length,
+        query: query
+      });
+    });
+    
+  } catch (error) {
+    console.error('Error searching symbols:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to search symbols',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Get all sectors
+app.get('/api/symbols/sectors', async (req, res) => {
+  try {
+    const sql = `
+      SELECT DISTINCT sector, COUNT(*) as count
+      FROM symbols 
+      WHERE is_active = 1 AND sector IS NOT NULL
+      GROUP BY sector
+      ORDER BY count DESC, sector
+    `;
+    
+    const stmt = db.prepare(sql);
+    const sectors = stmt.all();
+    
+    res.json({
+      status: 'success',
+      sectors: sectors
+    });
+    
+  } catch (error) {
+    console.error('Error fetching sectors:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch sectors',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Get all market caps
+app.get('/api/symbols/market-caps', async (req, res) => {
+  try {
+    const sql = `
+      SELECT DISTINCT market_cap, COUNT(*) as count
+      FROM symbols 
+      WHERE is_active = 1 AND market_cap IS NOT NULL
+      GROUP BY market_cap
+      ORDER BY 
+        CASE market_cap
+          WHEN 'ETF' THEN 1
+          WHEN 'Large Cap' THEN 2
+          WHEN 'Mid Cap' THEN 3
+          WHEN 'Small Cap' THEN 4
+          ELSE 5
+        END,
+        market_cap
+    `;
+    
+    const stmt = db.prepare(sql);
+    const marketCaps = stmt.all();
+    
+    res.json({
+      status: 'success',
+      marketCaps: marketCaps
+    });
+    
+  } catch (error) {
+    console.error('Error fetching market caps:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch market caps',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Get symbol details
+app.get('/api/symbols/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    
+    const sql = `
+      SELECT symbol, name, sector, market_cap, exchange, is_active, created_at, updated_at
+      FROM symbols 
+      WHERE symbol = ? AND is_active = 1
+    `;
+    
+    const stmt = db.prepare(sql);
+    const symbolData = stmt.get(symbol.toUpperCase());
+    
+    if (!symbolData) {
+      return res.status(404).json({
+        status: 'error',
+        message: `Symbol '${symbol}' not found`
+      });
+    }
+    
+    res.json({
+      status: 'success',
+      symbol: symbolData
+    });
+    
+  } catch (error) {
+    console.error('Error fetching symbol details:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch symbol details',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Add new symbol
+app.post('/api/symbols', async (req, res) => {
+  try {
+    const { symbol, name, sector, marketCap, exchange = 'NASDAQ' } = req.body;
+    
+    if (!symbol || !name) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Symbol and name are required'
+      });
+    }
+    
+    const sql = `
+      INSERT OR REPLACE INTO symbols (symbol, name, sector, market_cap, exchange, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `;
+    
+    const stmt = db.prepare(sql);
+    const result = stmt.run(symbol.toUpperCase(), name, sector, marketCap, exchange);
+    
+    res.json({
+      status: 'success',
+      message: `Symbol '${symbol.toUpperCase()}' ${result.changes > 0 ? 'added' : 'updated'} successfully`,
+      symbol: symbol.toUpperCase(),
+      changes: result.changes
+    });
+    
+  } catch (error) {
+    console.error('Error adding symbol:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to add symbol',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Update symbol
+app.put('/api/symbols/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { name, sector, marketCap, exchange, isActive } = req.body;
+    
+    const sql = `
+      UPDATE symbols 
+      SET name = COALESCE(?, name),
+          sector = COALESCE(?, sector),
+          market_cap = COALESCE(?, market_cap),
+          exchange = COALESCE(?, exchange),
+          is_active = COALESCE(?, is_active),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE symbol = ?
+    `;
+    
+    const stmt = db.prepare(sql);
+    const result = stmt.run(name, sector, marketCap, exchange, isActive, symbol.toUpperCase());
+    
+    if (result.changes === 0) {
+      return res.status(404).json({
+        status: 'error',
+        message: `Symbol '${symbol}' not found`
+      });
+    }
+    
+    res.json({
+      status: 'success',
+      message: `Symbol '${symbol.toUpperCase()}' updated successfully`,
+      changes: result.changes
+    });
+    
+  } catch (error) {
+    console.error('Error updating symbol:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update symbol',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Delete symbol (soft delete)
+app.delete('/api/symbols/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    
+    const sql = `
+      UPDATE symbols 
+      SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+      WHERE symbol = ?
+    `;
+    
+    const stmt = db.prepare(sql);
+    const result = stmt.run(symbol.toUpperCase());
+    
+    if (result.changes === 0) {
+      return res.status(404).json({
+        status: 'error',
+        message: `Symbol '${symbol}' not found`
+      });
+    }
+    
+    res.json({
+      status: 'success',
+      message: `Symbol '${symbol.toUpperCase()}' deactivated successfully`,
+      changes: result.changes
+    });
+    
+  } catch (error) {
+    console.error('Error deactivating symbol:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to deactivate symbol',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Bulk fetch historical data for all symbols
+app.post('/api/bulk-fetch-historical-data', async (req, res) => {
+  try {
+    const { symbols = [], startDate = '2020-01-01', endDate = null, forceRefresh = false } = req.body;
+    
+    // If no symbols provided, fetch all active symbols
+    let targetSymbols = symbols;
+    if (!symbols || symbols.length === 0) {
+      const stmt = db.prepare('SELECT symbol FROM symbols WHERE is_active = 1');
+      const allSymbols = stmt.all();
+      targetSymbols = allSymbols.map(row => row.symbol);
+    }
+    
+    console.log(`Starting bulk fetch for ${targetSymbols.length} symbols`);
+    
+    const results = {
+      total: targetSymbols.length,
+      successful: 0,
+      failed: 0,
+      skipped: 0,
+      details: []
+    };
+    
+    // Process symbols in batches to avoid overwhelming the API
+    const batchSize = 5; // Process 5 symbols at a time
+    const batches = [];
+    
+    for (let i = 0; i < targetSymbols.length; i += batchSize) {
+      batches.push(targetSymbols.slice(i, i + batchSize));
+    }
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} symbols)`);
+      
+      // Process batch concurrently
+      const batchPromises = batch.map(async (symbol) => {
+        try {
+          // Check if we need to refresh data
+          if (!forceRefresh) {
+            const freshnessStmt = db.prepare('SELECT last_updated FROM data_freshness WHERE symbol = ?');
+            const freshness = freshnessStmt.get(symbol);
+            
+            if (freshness && freshness.last_updated) {
+              const lastUpdate = new Date(freshness.last_updated);
+              const now = new Date();
+              const daysSinceUpdate = (now - lastUpdate) / (1000 * 60 * 60 * 24);
+              
+              // Skip if updated within last 24 hours
+              if (daysSinceUpdate < 1) {
+                results.skipped++;
+                results.details.push({
+                  symbol,
+                  status: 'skipped',
+                  reason: 'Data is recent (updated within 24 hours)'
+                });
+                return;
+              }
+            }
+          }
+          
+          // Fetch historical data from Stooq
+          const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&d1=${startDate}&d2=${endDate || new Date().toISOString().split('T')[0]}&i=d`;
+          
+          const response = await fetch(stooqUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          const csvText = await response.text();
+          if (!csvText || csvText.includes('N/A') || csvText.length < 100) {
+            throw new Error('Invalid or empty data received from Stooq');
+          }
+          
+          // Parse CSV data
+          const lines = csvText.trim().split('\n');
+          const headers = lines[0].split(',');
+          
+          if (headers.length < 5) {
+            throw new Error('Invalid CSV format');
+          }
+          
+          // Find column indices
+          const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
+          const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
+          const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
+          const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
+          const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
+          const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
+          
+          if (dateIndex === -1 || closeIndex === -1) {
+            throw new Error('Required columns not found');
+          }
+          
+          // Process data rows
+          const dataRows = lines.slice(1).filter(line => line.trim() && !line.includes('N/A'));
+          
+          if (dataRows.length === 0) {
+            throw new Error('No valid data rows found');
+          }
+          
+          // Begin transaction for this symbol
+          db.serialize(() => {
+            // Delete existing data for this symbol
+            const deleteStmt = db.prepare('DELETE FROM historical_prices WHERE symbol = ?');
+            deleteStmt.run(symbol);
+            
+            // Insert new data
+            const insertStmt = db.prepare(`
+              INSERT INTO historical_prices (symbol, date, open, high, low, close, volume)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `);
+            
+            let insertedRows = 0;
+            for (const line of dataRows) {
+              const values = line.split(',');
+              if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
+                const date = values[dateIndex];
+                const open = parseFloat(values[openIndex]) || null;
+                const high = parseFloat(values[highIndex]) || null;
+                const low = parseFloat(values[lowIndex]) || null;
+                const close = parseFloat(values[closeIndex]) || null;
+                const volume = parseInt(values[volumeIndex]) || null;
+                
+                if (date && close && !isNaN(close)) {
+                  insertStmt.run(symbol, date, open, high, low, close, volume);
+                  insertedRows++;
+                }
+              }
+            }
+            
+            // Update data freshness
+            const upsertFreshness = db.prepare(`
+              INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+              VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
+            `);
+            upsertFreshness.run(symbol);
+            
+            console.log(`✓ ${symbol}: Inserted ${insertedRows} rows`);
+          });
+          
+          results.successful++;
+          results.details.push({
+            symbol,
+            status: 'success',
+            rowsInserted: dataRows.length
+          });
+          
+        } catch (error) {
+          console.error(`✗ ${symbol}: ${error.message}`);
+          results.failed++;
+          results.details.push({
+            symbol,
+            status: 'failed',
+            error: error.message
+          });
+          
+          // Update error tracking
+          const errorStmt = db.prepare(`
+            INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count, last_error)
+            VALUES (?, CURRENT_TIMESTAMP, 'error', COALESCE((SELECT error_count + 1 FROM data_freshness WHERE symbol = ?), 1), ?)
+          `);
+          errorStmt.run(symbol, symbol, error.message);
+        }
+      });
+      
+      // Wait for batch to complete
+      await Promise.all(batchPromises);
+      
+      // Add delay between batches to be respectful to Stooq API
+      if (batchIndex < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+      }
+    }
+    
+    console.log(`Bulk fetch completed: ${results.successful} successful, ${results.failed} failed, ${results.skipped} skipped`);
+    
+    res.json({
+      status: 'success',
+      message: `Bulk fetch completed for ${targetSymbols.length} symbols`,
+      results
+    });
+    
+  } catch (error) {
+    console.error('Error in bulk fetch:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to perform bulk fetch',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Get data freshness status
+app.get('/api/data-freshness', async (req, res) => {
+  try {
+    const { symbol, limit = 100 } = req.query;
+    
+    let sql = `
+      SELECT 
+        df.symbol,
+        s.name,
+        s.sector,
+        df.last_updated,
+        df.status,
+        df.error_count,
+        df.last_error,
+        hp.latest_date,
+        hp.latest_close
+      FROM data_freshness df
+      LEFT JOIN symbols s ON df.symbol = s.symbol
+      LEFT JOIN latest_prices hp ON df.symbol = hp.symbol
+    `;
+    
+    const params = [];
+    
+    if (symbol) {
+      sql += ` WHERE df.symbol = ?`;
+      params.push(symbol.toUpperCase());
+    }
+    
+    sql += ` ORDER BY df.last_updated DESC LIMIT ?`;
+    params.push(parseInt(limit));
+    
+    const stmt = db.prepare(sql);
+    const results = stmt.all(...params);
+    
+    res.json({
+      status: 'success',
+      data: results,
+      total: results.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching data freshness:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch data freshness',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Get symbol price summary
+app.get('/api/symbols/:symbol/price-summary', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const upperSymbol = symbol.toUpperCase();
+    const tableName = `${upperSymbol.toLowerCase()}_all_history`;
+    
+    // Check if the symbol table exists
+    const tableExistsStmt = db.prepare(`
+      SELECT name FROM sqlite_master 
+      WHERE type='table' AND name = ?
+    `);
+    const tableExists = tableExistsStmt.get(tableName);
+    
+    if (!tableExists) {
+      return res.status(404).json({
+        status: 'error',
+        message: `No price data found for symbol '${symbol}'`
+      });
+    }
+    
+    // Use callback version for proper results
+    db.get(`SELECT date, close FROM ${tableName} ORDER BY date DESC LIMIT 1`, (err, latestPrice) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({
+          status: 'error',
+          message: 'Database error',
+          error: err.message
+        });
+      }
+      
+      if (!latestPrice) {
+        return res.status(404).json({
+          status: 'error',
+          message: `No price data found for symbol '${symbol}'`
+        });
+      }
+      
+      // Get recent prices
+      db.all(`SELECT date, close FROM ${tableName} ORDER BY date DESC LIMIT 5`, (err, recentPrices) => {
+        if (err) {
+          console.error('Database error getting recent prices:', err);
+          recentPrices = [];
+        }
+        
+        res.json({
+          status: 'success',
+          symbol: upperSymbol,
+          latestPrice: latestPrice.close,
+          latestDate: latestPrice.date,
+          recentPrices: recentPrices || [],
+          dataPoints: (recentPrices || []).length
+        });
+      });
+    });
+    
+  } catch (error) {
+    console.error('Error fetching price summary:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch price summary',
+      error: error.message
+    });
+  }
+});
+
+// New API endpoint: Refresh specific symbol data
+app.post('/api/symbols/:symbol/refresh', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { startDate = '2020-01-01', endDate = null } = req.body;
+    
+    console.log(`Refreshing data for ${symbol}`);
+    
+    // Fetch from Stooq
+    const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&d1=${startDate}&d2=${endDate || new Date().toISOString().split('T')[0]}&i=d`;
+    
+    const response = await fetch(stooqUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const csvText = await response.text();
+    if (!csvText || csvText.includes('N/A') || csvText.length < 100) {
+      throw new Error('Invalid or empty data received from Stooq');
+    }
+    
+    // Parse and insert data (similar logic to bulk fetch)
+    const lines = csvText.trim().split('\n');
+    const headers = lines[0].split(',');
+    
+    const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
+    const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
+    const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
+    const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
+    const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
+    const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
+    
+    if (dateIndex === -1 || closeIndex === -1) {
+      throw new Error('Required columns not found');
+    }
+    
+    const dataRows = lines.slice(1).filter(line => line.trim() && !line.includes('N/A'));
+    
+    if (dataRows.length === 0) {
+      throw new Error('No valid data rows found');
+    }
+    
+    // Update database
+    db.serialize(() => {
+      // Delete existing data
+      const deleteStmt = db.prepare('DELETE FROM historical_prices WHERE symbol = ?');
+      deleteStmt.run(symbol.toUpperCase());
+      
+      // Insert new data
+      const insertStmt = db.prepare(`
+        INSERT INTO historical_prices (symbol, date, open, high, low, close, volume)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      
+      let insertedRows = 0;
+      for (const line of dataRows) {
+        const values = line.split(',');
+        if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
+          const date = values[dateIndex];
+          const open = parseFloat(values[openIndex]) || null;
+          const high = parseFloat(values[highIndex]) || null;
+          const low = parseFloat(values[lowIndex]) || null;
+          const close = parseFloat(values[closeIndex]) || null;
+          const volume = parseInt(values[volumeIndex]) || null;
+          
+          if (date && close && !isNaN(close)) {
+            insertStmt.run(symbol.toUpperCase(), date, open, high, low, close, volume);
+            insertedRows++;
+          }
+        }
+      }
+      
+      // Update freshness
+      const upsertFreshness = db.prepare(`
+        INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+        VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
+      `);
+      upsertFreshness.run(symbol.toUpperCase());
+    });
+    
+    res.json({
+      status: 'success',
+      message: `Successfully refreshed data for ${symbol}`,
+      rowsInserted: dataRows.length,
+      lastUpdated: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error(`Error refreshing ${req.params.symbol}:`, error);
+    res.status(500).json({
+      status: 'error',
+      message: `Failed to refresh data for ${req.params.symbol}`,
+      error: error.message
+    });
+  }
+});
+
+// Serve static files (must be last to not interfere with API routes)
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
+// Catch-all route for SPA routing (must be last)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+});
 
 // Start server
 app.listen(PORT, () => {

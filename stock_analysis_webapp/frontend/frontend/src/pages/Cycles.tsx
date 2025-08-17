@@ -15,10 +15,14 @@ import {
   ReferenceArea
 } from 'recharts'
 
-export default function Cycles() {
+interface CyclesProps {
+  selectedSymbol?: string;
+}
+
+export default function Cycles({ selectedSymbol }: CyclesProps) {
   const { threshold, availableThresholds, setThreshold } = useThreshold()
   const { cycles, fetchCycles, isLoading, error } = useData()
-  const { selectedETF } = useETF()
+  const { selectedETF, setSelectedETF } = useETF()
   const [searchTerm, setSearchTerm] = useState('')
   const [severityFilter, setSeverityFilter] = useState('all')
   const [sortField, setSortField] = useState('ath_date')
@@ -26,6 +30,14 @@ export default function Cycles() {
   const [selectedCycle, setSelectedCycle] = useState<any>(null)
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
   const [chartData, setChartData] = useState<any>(null)
+  
+  // Set the selected ETF if passed from Dashboard
+  useEffect(() => {
+    if (selectedSymbol && selectedSymbol !== selectedETF) {
+      console.log(`🔄 Setting selected ETF to ${selectedSymbol} from Dashboard`)
+      setSelectedETF(selectedSymbol)
+    }
+  }, [selectedSymbol, selectedETF, setSelectedETF])
 
   // Function to fetch current price - IMPROVED with better error handling and fallbacks
   const fetchCurrentPrice = async () => {
@@ -302,7 +314,7 @@ export default function Cycles() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -677,10 +689,12 @@ export default function Cycles() {
                                         <Tooltip 
                                           content={({ active, payload, label }) => {
                                             if (active && payload && payload.length) {
+                                              const value = payload[0].value;
+                                              const formattedValue = typeof value === 'number' ? value.toFixed(2) : String(value);
                                               return (
                                                 <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
                                                   <p className="font-medium text-gray-900">{formatChartDate(label)}</p>
-                                                  <p className="text-blue-600">{selectedETF}: ${payload[0].value?.toFixed(2)}</p>
+                                                  <p className="text-blue-600">{selectedETF}: ${formattedValue}</p>
                                                 </div>
                                               )
                                             }
