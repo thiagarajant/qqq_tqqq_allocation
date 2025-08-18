@@ -23,6 +23,14 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
   const { threshold, availableThresholds, setThreshold } = useThreshold()
   const { cycles, fetchCycles, isLoading, error } = useData()
   const { selectedETF, setSelectedETF } = useETF()
+  
+  // Debug logging
+  console.log('🔍 Cycles component - Debug info:', {
+    threshold,
+    availableThresholds: availableThresholds?.length || 0,
+    selectedETF,
+    selectedSymbol
+  })
   const [searchTerm, setSearchTerm] = useState('')
   const [severityFilter, setSeverityFilter] = useState('all')
   const [sortField, setSortField] = useState('ath_date')
@@ -113,8 +121,18 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
   }
 
   useEffect(() => {
-    fetchCycles(threshold)
+    if (selectedETF) {
+      fetchCycles(threshold)
+    }
   }, [threshold, selectedETF, fetchCycles])
+
+  // Also fetch cycles when selectedSymbol changes (for Dashboard integration)
+  useEffect(() => {
+    if (selectedSymbol && selectedSymbol !== selectedETF) {
+      console.log(`🔄 Dashboard integration: Fetching cycles for ${selectedSymbol}`)
+      fetchCycles(threshold)
+    }
+  }, [selectedSymbol, threshold, fetchCycles])
 
   useEffect(() => {
     fetchCurrentPrice()
@@ -216,11 +234,11 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
 
   const getSeverityBadge = (severity: string) => {
     const colors = {
-      severe: 'badge-danger',
-      moderate: 'badge-warning',
-      mild: 'badge-success'
+      severe: 'bg-red-100 text-red-800',
+      moderate: 'bg-yellow-100 text-yellow-800',
+      mild: 'bg-green-100 text-green-800'
     }
-    return colors[severity.toLowerCase() as keyof typeof colors] || 'badge-info'
+    return colors[severity.toLowerCase() as keyof typeof colors] || 'bg-blue-100 text-blue-800'
   }
 
   const formatDate = (dateString: string) => {
@@ -295,16 +313,16 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="card text-center">
-          <div className="text-danger-600 mb-4">
+      <div className="w-full">
+        <div className="bg-white rounded-lg border border-gray-200 p-6 text-center">
+          <div className="text-red-600 mb-4">
             <TrendingDown className="w-16 h-16 mx-auto" />
           </div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Error Loading Data</h3>
           <p className="text-gray-600 mb-4">{error}</p>
           <button 
             onClick={() => fetchCycles(threshold)}
-            className="btn-primary"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Try Again
           </button>
@@ -314,13 +332,13 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
+    <div className="w-full">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
           {selectedETF} Drawdown Cycles
-        </h1>
-        <p className="text-gray-600 text-lg">
+        </h2>
+        <p className="text-gray-600">
           {threshold}%+ threshold • {cycles.length} total cycles
         </p>
         <p className="text-sm text-blue-600 mt-2">
@@ -328,10 +346,31 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
         </p>
       </div>
 
+      {/* Threshold info display only */}
+      <div className="bg-blue-50 rounded-lg border border-blue-200 p-4 mb-6">
+        <div className="flex items-center justify-center gap-4">
+          <div className="text-center">
+            <div className="text-sm text-gray-600 mb-2">Current Threshold</div>
+            <div className="px-4 py-2 bg-blue-100 text-blue-800 rounded-full text-lg font-bold">
+              {threshold}%
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-sm text-gray-600 mb-2">Cycles Found</div>
+            <div className="px-4 py-2 bg-green-100 text-green-800 rounded-full text-lg font-bold">
+              {cycles.length}
+            </div>
+          </div>
+          <div className="text-sm text-gray-500 text-center">
+            💡 Use the threshold selector above to change the threshold and refresh cycles
+          </div>
+        </div>
+      </div>
+
 
 
       {/* Controls */}
-      <div className="card mb-6">
+      <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-6">
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-4 flex-1">
             {/* Search */}
@@ -342,7 +381,7 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
                 placeholder="Search cycles..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-field pl-10"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pl-10"
               />
             </div>
 
@@ -350,7 +389,7 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
             <select
               value={severityFilter}
               onChange={(e) => setSeverityFilter(e.target.value)}
-              className="input-field max-w-xs"
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 max-w-xs"
             >
               <option value="all">All Severities</option>
               <option value="severe">Severe</option>
@@ -362,7 +401,7 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
           {/* Export Button */}
           <button
             onClick={exportToCSV}
-            className="btn-secondary flex items-center space-x-2"
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center space-x-2"
           >
             <Download className="w-4 h-4" />
             <span>Export CSV</span>
@@ -378,7 +417,7 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
       </div>
 
       {/* Cycles Table */}
-      <div className="card overflow-hidden">
+      <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -433,7 +472,7 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
                       </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`badge ${getSeverityBadge(cycle.severity)}`}>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getSeverityBadge(cycle.severity)}`}>
                       {cycle.severity}
                     </span>
                   </td>

@@ -284,54 +284,7 @@ export default function Navbar() {
             </div>
           </div>
 
-          {/* Threshold text field */}
-          <div className="hidden md:flex items-center space-x-2">
-            <label htmlFor="threshold-input" className="text-sm font-medium text-gray-700">
-              Threshold:
-            </label>
-            <div className="relative">
-              <input
-                id="threshold-input"
-                type="text"
-                value={threshold}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  // Allow typing decimal numbers
-                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                    const numValue = parseFloat(value);
-                    if (!isNaN(numValue) && numValue >= 0.25 && numValue <= 30) {
-                      setThreshold(numValue);
-                    } else if (value === '') {
-                      // Allow empty for editing
-                    } else {
-                      // Keep current value if invalid
-                    }
-                  }
-                }}
-                onBlur={(e) => {
-                  const value = e.target.value;
-                  if (value === '' || isNaN(parseFloat(value))) {
-                    // Reset to default if empty or invalid
-                    setThreshold(5);
-                  } else {
-                    const numValue = parseFloat(value);
-                    if (numValue < 0.25) {
-                      setThreshold(0.25);
-                    } else if (numValue > 30) {
-                      setThreshold(30);
-                    } else {
-                      setThreshold(numValue);
-                    }
-                  }
-                }}
-                placeholder="5.0"
-                className="input-field w-16 py-1 px-2 text-sm text-center font-mono"
-              />
-              <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                %
-              </span>
-            </div>
-          </div>
+          {/* Threshold selector removed - now only in Dashboard */}
 
           {/* Mobile menu button */}
           <div className="md:hidden">
@@ -373,12 +326,7 @@ export default function Navbar() {
               )
             })}
             
-            {/* Mobile threshold text field */}
-            <div className="pt-4 border-t border-gray-200">
-              <label htmlFor="mobile-threshold" className="block text-sm font-medium text-gray-700 mb-2">
-                Drawdown Threshold (%)
-              </label>
-              <div className="relative">
+
                 <input
                   id="mobile-threshold"
                   type="text"
