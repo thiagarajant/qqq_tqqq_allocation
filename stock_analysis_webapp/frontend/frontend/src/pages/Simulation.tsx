@@ -314,12 +314,16 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }).format(value);
   };
 
   const formatPercent = (value: number) => {
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+  };
+
+  const formatPercentShort = (value: number) => {
+    return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
   };
 
   const getReturnColor = (value: number) => {
@@ -364,9 +368,9 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
         </p>
       </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 lg:gap-6">
           {/* Simulation Controls */}
-          <div className="lg:col-span-1">
+          <div className="xl:col-span-2">
             <div className="bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Simulation Parameters</h2>
               
@@ -560,55 +564,55 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
           </div>
 
           {/* Simulation Results */}
-          <div className="lg:col-span-2">
+          <div className="xl:col-span-3">
             {simulationResult ? (
               <div className="space-y-6">
                 {/* Results Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
                   {/* Base ETF Only */}
-                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4 ${getReturnBgColor(simulationResult.baseETFFinalValue ? (simulationResult.baseETFTotalReturnPct || 0) : 0)}`}>
-                    <div className="text-center">
-                      <h4 className="text-sm font-medium text-gray-600 mb-2">{selectedETFPair.baseETF} Only</h4>
-                      <p className="text-2xl font-bold text-gray-900 mb-1">
+                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-3 lg:p-4 min-w-0 min-h-[140px] ${getReturnBgColor(simulationResult.baseETFFinalValue ? (simulationResult.baseETFTotalReturnPct || 0) : 0)}`}>
+                    <div className="text-center min-w-0 h-full flex flex-col justify-center">
+                      <h4 className="text-xs lg:text-sm font-medium text-gray-600 mb-2 truncate">{selectedETFPair.baseETF} Only</h4>
+                      <p className="text-base lg:text-lg xl:text-xl font-bold text-gray-900 mb-1 break-words leading-tight min-h-[2.5rem] flex items-center justify-center">
                         {formatCurrency(simulationResult.baseETFFinalValue || simulationResult.qqqFinalValue || 0)}
                       </p>
-                      <p className={`text-sm font-medium ${getReturnColor(simulationResult.baseETFTotalReturnPct || simulationResult.qqqTotalReturnPct || 0)}`}>
+                      <p className={`text-xs lg:text-sm font-medium ${getReturnColor(simulationResult.baseETFTotalReturnPct || simulationResult.qqqTotalReturnPct || 0)} min-h-[1.5rem] flex items-center justify-center`}>
                         {formatPercent(simulationResult.baseETFTotalReturnPct || simulationResult.qqqTotalReturnPct || 0)}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {formatPercent(simulationResult.baseETFAnnualizedReturn || simulationResult.qqqAnnualizedReturn || 0)} annually
+                      <p className="text-xs text-gray-500 mt-1 break-words min-h-[1rem] flex items-center justify-center">
+                        {formatPercentShort(simulationResult.baseETFAnnualizedReturn || simulationResult.qqqAnnualizedReturn || 0)} annually
                       </p>
                     </div>
                   </div>
 
                   {/* Leveraged ETF Only */}
-                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4 ${getReturnBgColor(simulationResult.leveragedETFFinalValue ? (simulationResult.leveragedETFTotalReturnPct || 0) : 0)}`}>
-                    <div className="text-center">
-                      <h4 className="text-sm font-medium text-gray-600 mb-2">{selectedETFPair.leveragedETF} Only</h4>
-                      <p className="text-2xl font-bold text-gray-900 mb-1">
+                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-3 lg:p-4 min-w-0 min-h-[140px] ${getReturnBgColor(simulationResult.leveragedETFFinalValue ? (simulationResult.leveragedETFTotalReturnPct || 0) : 0)}`}>
+                    <div className="text-center min-w-0 h-full flex flex-col justify-center">
+                      <h4 className="text-xs lg:text-sm font-medium text-gray-600 mb-2 truncate">{selectedETFPair.leveragedETF} Only</h4>
+                      <p className="text-base lg:text-lg xl:text-xl font-bold text-gray-900 mb-1 break-words leading-tight min-h-[2.5rem] flex items-center justify-center">
                         {formatCurrency(simulationResult.leveragedETFFinalValue || simulationResult.tqqqFinalValue || 0)}
                       </p>
-                      <p className={`text-sm font-medium ${getReturnColor(simulationResult.leveragedETFTotalReturnPct || simulationResult.tqqqTotalReturnPct || 0)}`}>
+                      <p className={`text-xs lg:text-sm font-medium ${getReturnColor(simulationResult.leveragedETFTotalReturnPct || simulationResult.tqqqTotalReturnPct || 0)} min-h-[1.5rem] flex items-center justify-center`}>
                         {formatPercent(simulationResult.leveragedETFTotalReturnPct || simulationResult.tqqqTotalReturnPct || 0)}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {formatPercent(simulationResult.leveragedETFAnnualizedReturn || simulationResult.tqqqAnnualizedReturn || 0)} annually
+                      <p className="text-xs text-gray-500 mt-1 break-words min-h-[1rem] flex items-center justify-center">
+                        {formatPercentShort(simulationResult.leveragedETFAnnualizedReturn || simulationResult.tqqqAnnualizedReturn || 0)} annually
                       </p>
                     </div>
                   </div>
 
                   {/* Strategy */}
-                                  {simulationResult.strategyFinalValue && (
-                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4 ${getReturnBgColor(simulationResult.strategyTotalReturnPct || 0)}`}>
-                      <div className="text-center">
-                        <h4 className="text-sm font-medium text-gray-600 mb-2">Smart Strategy</h4>
-                        <p className="text-2xl font-bold text-gray-900 mb-1">
+                  {simulationResult.strategyFinalValue && (
+                    <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-3 lg:p-4 min-w-0 min-h-[140px] ${getReturnBgColor(simulationResult.strategyTotalReturnPct || 0)}`}>
+                      <div className="text-center min-w-0 h-full flex flex-col justify-center">
+                        <h4 className="text-xs lg:text-sm font-medium text-gray-600 mb-2 truncate">Smart Strategy</h4>
+                        <p className="text-base lg:text-lg xl:text-xl font-bold text-gray-900 mb-1 break-words leading-tight min-h-[2.5rem] flex items-center justify-center">
                           {formatCurrency(simulationResult.strategyFinalValue)}
                         </p>
-                        <p className={`text-sm font-medium ${getReturnColor(simulationResult.strategyTotalReturnPct || 0)}`}>
+                        <p className={`text-xs lg:text-sm font-medium ${getReturnColor(simulationResult.strategyTotalReturnPct || 0)} min-h-[1.5rem] flex items-center justify-center`}>
                           {formatPercent(simulationResult.strategyTotalReturnPct || 0)}
                         </p>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-gray-500 mt-1 break-words min-h-[1rem] flex items-center justify-center">
                           {simulationResult.strategySwitches} switches
                         </p>
                       </div>
@@ -617,42 +621,42 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                 </div>
 
                 {/* Detailed Results */}
-                <div className="bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Detailed Results</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="font-medium text-gray-700 mb-3">Investment Summary</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Initial Investment:</span>
-                          <span className="font-medium">{formatCurrency(simulationResult.initialInvestment)}</span>
+                <div className="bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-3 lg:p-4">
+                  <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-3 lg:mb-4">Detailed Results</h3>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+                    <div className="min-w-0">
+                      <h4 className="font-medium text-gray-700 mb-2 lg:mb-3 text-sm lg:text-base">Investment Summary</h4>
+                      <div className="space-y-2 text-xs lg:text-sm">
+                        <div className="flex justify-between items-center min-w-0">
+                          <span className="truncate mr-2">Initial Investment:</span>
+                          <span className="font-medium text-right break-words">{formatCurrency(simulationResult.initialInvestment)}</span>
                         </div>
                         {simulationResult.monthlyInvestment && (
-                          <div className="flex justify-between">
-                            <span>Monthly Investment:</span>
-                            <span className="font-medium">{formatCurrency(simulationResult.monthlyInvestment)}</span>
+                          <div className="flex justify-between items-center min-w-0">
+                            <span className="truncate mr-2">Monthly Investment:</span>
+                            <span className="font-medium text-right break-words">{formatCurrency(simulationResult.monthlyInvestment)}</span>
                           </div>
                         )}
-                        <div className="flex justify-between">
-                          <span>Total Invested:</span>
-                          <span className="font-medium">{formatCurrency(simulationResult.totalInvested || simulationResult.initialInvestment)}</span>
+                        <div className="flex justify-between items-center min-w-0">
+                          <span className="truncate mr-2">Total Invested:</span>
+                          <span className="font-medium text-right break-words">{formatCurrency(simulationResult.totalInvested || simulationResult.initialInvestment)}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Duration:</span>
-                          <span className="font-medium">{(simulationResult.durationYears || 0).toFixed(1)} years</span>
+                        <div className="flex justify-between items-center min-w-0">
+                          <span className="truncate mr-2">Duration:</span>
+                          <span className="font-medium text-right break-words">{(simulationResult.durationYears || 0).toFixed(1)} years</span>
                         </div>
                       </div>
                     </div>
 
-                    <div>
-                      <h4 className="font-medium text-gray-700 mb-3">Strategy Details</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Strategy:</span>
-                          <span className="font-medium text-blue-600">{simulationResult.strategy}</span>
+                    <div className="min-w-0">
+                      <h4 className="font-medium text-gray-700 mb-2 lg:mb-3 text-sm lg:text-base">Strategy Details</h4>
+                      <div className="space-y-2 text-xs lg:text-sm">
+                        <div className="flex justify-between items-center min-w-0">
+                          <span className="truncate mr-2">Strategy:</span>
+                          <span className="font-medium text-blue-600 text-right break-words">{simulationResult.strategy}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Switches:</span>
+                        <div className="flex justify-between items-center min-w-0">
+                          <span className="truncate mr-2">Switches:</span>
                           <span className="font-medium">{simulationResult.strategySwitches || 0}</span>
                         </div>
                         <div className="flex justify-between">
