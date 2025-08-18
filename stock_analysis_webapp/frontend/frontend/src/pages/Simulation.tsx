@@ -77,8 +77,8 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
   const [showSymbolSelector, setShowSymbolSelector] = useState(false);
   const [symbolSearchTerm, setSymbolSearchTerm] = useState('');
 
-  const [monthlyInvestment, setMonthlyInvestment] = useState<number>(0);
-  const [useMonthlyInvestment, setUseMonthlyInvestment] = useState(false);
+  const [monthlyInvestment, setMonthlyInvestment] = useState<number>(1000);
+  const [useMonthlyInvestment, setUseMonthlyInvestment] = useState(true);
   
   // State for smart strategy options (only shown after initial simulation)
   const [showSmartStrategyOptions, setShowSmartStrategyOptions] = useState(false);
@@ -120,9 +120,39 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
       setError(null)
       setSimulationResult(null)
       setSecondarySymbol('') // Also clear secondary symbol
+      
+      // Auto-set date range to last 5 years for Dashboard integration
+      const today = new Date();
+      const fiveYearsAgo = new Date(today.getFullYear() - 5, today.getMonth(), today.getDate());
+      setStartDate(fiveYearsAgo.toISOString().split('T')[0]);
+      setEndDate(today.toISOString().split('T')[0]);
+      
       console.log(`🧹 Cleared all states for new symbol: ${selectedSymbol}`)
+      console.log(`📅 Auto-set date range: ${fiveYearsAgo.toISOString().split('T')[0]} to ${today.toISOString().split('T')[0]}`)
     }
   }, [selectedSymbol, selectedETFPair.baseETF])
+
+  // Auto-run simulation when coming from Dashboard with autoRun parameter
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
+    const autoRun = urlParams.get('autoRun');
+    
+    if (autoRun === 'true' && selectedSymbol && !isLoading && !simulationResult) {
+      console.log(`🚀 Auto-running simulation for ${selectedSymbol} from Dashboard`);
+      
+      // Set date range to last 5 years
+      const today = new Date();
+      const fiveYearsAgo = new Date(today.getFullYear() - 5, today.getMonth(), today.getDate());
+      
+      setStartDate(fiveYearsAgo.toISOString().split('T')[0]);
+      setEndDate(today.toISOString().split('T')[0]);
+      
+      // Auto-run the simulation after a short delay to ensure state is set
+      setTimeout(() => {
+        runSimulation();
+      }, 500);
+    }
+  }, [selectedSymbol, isLoading, simulationResult])
 
   // Auto-generate ETF pairs from available symbols
   useEffect(() => {
@@ -325,20 +355,19 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Portfolio Simulation</h1>
-          <p className="text-gray-600">
-            Compare different investment strategies and see how they would have performed historically.
-          </p>
-        </div>
+    <div className="w-full">
+      {/* Header */}
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Portfolio Simulation - {selectedSymbol}</h2>
+        <p className="text-gray-600">
+          Compare different investment strategies and see how they would have performed historically.
+        </p>
+      </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Simulation Controls */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Simulation Parameters</h2>
               
               {/* ETF Pair Selection */}
@@ -537,7 +566,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                 {/* Results Summary */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Base ETF Only */}
-                  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${getReturnBgColor(simulationResult.baseETFFinalValue ? (simulationResult.baseETFTotalReturnPct || 0) : 0)}`}>
+                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4 ${getReturnBgColor(simulationResult.baseETFFinalValue ? (simulationResult.baseETFTotalReturnPct || 0) : 0)}`}>
                     <div className="text-center">
                       <h4 className="text-sm font-medium text-gray-600 mb-2">{selectedETFPair.baseETF} Only</h4>
                       <p className="text-2xl font-bold text-gray-900 mb-1">
@@ -553,7 +582,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                   </div>
 
                   {/* Leveraged ETF Only */}
-                  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${getReturnBgColor(simulationResult.leveragedETFFinalValue ? (simulationResult.leveragedETFTotalReturnPct || 0) : 0)}`}>
+                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4 ${getReturnBgColor(simulationResult.leveragedETFFinalValue ? (simulationResult.leveragedETFTotalReturnPct || 0) : 0)}`}>
                     <div className="text-center">
                       <h4 className="text-sm font-medium text-gray-600 mb-2">{selectedETFPair.leveragedETF} Only</h4>
                       <p className="text-2xl font-bold text-gray-900 mb-1">
@@ -569,8 +598,8 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                   </div>
 
                   {/* Strategy */}
-                  {simulationResult.strategyFinalValue && (
-                    <div className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${getReturnBgColor(simulationResult.strategyTotalReturnPct || 0)}`}>
+                                  {simulationResult.strategyFinalValue && (
+                  <div className={`bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4 ${getReturnBgColor(simulationResult.strategyTotalReturnPct || 0)}`}>
                       <div className="text-center">
                         <h4 className="text-sm font-medium text-gray-600 mb-2">Smart Strategy</h4>
                         <p className="text-2xl font-bold text-gray-900 mb-1">
@@ -588,7 +617,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                 </div>
 
                 {/* Detailed Results */}
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Detailed Results</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
@@ -636,7 +665,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                 </div>
 
                 {/* Smart Strategy Options */}
-                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Smart Strategy Options</h3>
                   <p className="text-sm text-gray-600 mb-4">
                     Configure smart switching strategy parameters to see how switching between symbols during drawdowns affects returns.
@@ -757,7 +786,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center py-12">
+              <div className="bg-gray-50 rounded-lg shadow-sm border border-gray-200 p-4 text-center py-8">
                 <TrendingUp className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Ready to Simulate</h3>
                 <p className="text-gray-600 mb-4">
@@ -777,7 +806,6 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
           </div>
         </div>
       </div>
-    </div>
   );
 };
 
