@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import Cycles from './Cycles'
 import Simulation from './Simulation'
 
+
 interface NASDAQSymbol {
   symbol: string
   name: string

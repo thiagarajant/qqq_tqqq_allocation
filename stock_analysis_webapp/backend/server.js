@@ -283,14 +283,14 @@ function isValidThreshold(threshold) {
     return !isNaN(numThreshold) && numThreshold >= 0.1 && numThreshold <= 50;
 }
 
-// Helper function to validate ETF table exists
-function validateETFTable(etf, callback) {
-    const tableName = `${etf.toLowerCase()}_all_history`;
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name = ?", [tableName], (err, row) => {
+// Helper function to validate symbol exists in database
+function validateSymbol(symbol, callback) {
+    // Check if the symbol exists in the unified historical_prices table
+    db.get("SELECT COUNT(*) as count FROM historical_prices WHERE symbol = ?", [symbol], (err, row) => {
         if (err) {
             callback(err, false);
         } else {
-            callback(null, !!row);
+            callback(null, row.count > 0);
         }
     });
 }
@@ -298,8 +298,8 @@ function validateETFTable(etf, callback) {
 // Helper function to get dynamic table names
 function getETFTableNames(baseETF, leveragedETF) {
     return {
-        baseTable: `${baseETF.toLowerCase()}_all_history`,
-        leveragedTable: `${leveragedETF.toLowerCase()}_all_history`
+        baseTable: 'historical_prices',
+        leveragedTable: 'historical_prices'
     };
 }
 
@@ -323,15 +323,15 @@ app.get('/api/thresholds', (req, res) => {
 
 // Get available ETF pairs
 app.get('/api/available-etfs', (req, res) => {
-    // Query database to find available ETF data tables
-    db.all("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_all_history'", (err, tables) => {
+    // Query database to find available ETF data from unified table
+    db.all("SELECT DISTINCT symbol FROM historical_prices WHERE symbol IN ('QQQ', 'TQQQ', 'SPY', 'UPRO', 'IWM', 'TNA') ORDER BY symbol", (err, rows) => {
         if (err) {
-            console.error('Error fetching ETF tables:', err);
+            console.error('Error fetching ETF symbols:', err);
             return res.status(500).json({ error: 'Failed to fetch available ETFs' });
         }
 
-        // Extract ETF symbols from table names
-        const etfSymbols = tables.map(table => table.name.replace('_all_history', '').toUpperCase());
+        // Extract ETF symbols from results
+        const etfSymbols = rows.map(row => row.symbol);
         
         // Define known ETF pairs (base ETF and leveraged ETF relationships)
         const knownPairs = [
@@ -359,7 +359,7 @@ app.get('/api/available-etfs', (req, res) => {
 
 // Get available single ETFs endpoint (for main pages)
 app.get('/api/available-single-etfs', (req, res) => {
-    db.all("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_all_history'", (err, tables) => {
+    db.all("SELECT DISTINCT symbol FROM historical_prices WHERE symbol IN ('QQQ', 'TQQQ', 'SPY', 'UPRO', 'IWM', 'TNA', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN') ORDER BY symbol", (err, rows) => {
         if (err) {
             console.error('Database error:', err);
             return res.status(500).json({ error: 'Database error' });
@@ -383,23 +383,20 @@ app.get('/api/available-single-etfs', (req, res) => {
             'AMZN': { name: 'Amazon.com Inc', description: 'E-commerce & Cloud Computing', category: 'Technology Stock' }
         };
 
-        tables.forEach(table => {
-            const tableName = table.name;
-            if (tableName.endsWith('_all_history')) {
-                const symbol = tableName.replace('_all_history', '').toUpperCase();
-                
-                // Use known info if available, otherwise create generic info
-                const info = knownETFInfo[symbol] || {
-                    name: `${symbol}`,
-                    description: `${symbol} Stock/ETF`,
-                    category: 'Stock/ETF'
-                };
-                
-                etfs.push({
-                    symbol: symbol,
-                    ...info
-                });
-            }
+        rows.forEach(row => {
+            const symbol = row.symbol;
+            
+            // Use known info if available, otherwise create generic info
+            const info = knownETFInfo[symbol] || {
+                name: `${symbol}`,
+                description: `${symbol} Stock/ETF`,
+                category: 'Stock/ETF'
+            };
+            
+            etfs.push({
+                symbol: symbol,
+                ...info
+            });
         });
 
         // Sort by symbol for consistent ordering
@@ -458,16 +455,32 @@ app.post('/api/fetch-historical-data', async (req, res) => {
     }
 });
 
-// Helper function to fetch data from Stooq
+// Helper function to fetch data from Stooq with smart strategy
 async function fetchStooqData(symbol) {
     const https = require('https');
     
-    // Try different URL formats for Stooq
-    const urls = [
-        `https://stooq.com/q/d/l/?s=${symbol}&i=d`,
-        `https://stooq.com/q/d/l/?s=${symbol}.us&i=d`,  // Try with .us suffix for US stocks
-        `https://stooq.com/q/d/l/?s=${symbol}&i=d&f=d,o,h,l,c,v`, // Try with explicit format
-    ];
+    // Determine if symbol is likely an ETF or stock based on common patterns
+    const isLikelyETF = isETFSymbol(symbol);
+    
+    let urls;
+    if (isLikelyETF) {
+        // For ETFs: try without suffix first, then with .US
+        urls = [
+            `https://stooq.com/q/d/l/?s=${symbol}&i=d`,           // Try without suffix FIRST (ETFs)
+            `https://stooq.com/q/d/l/?s=${symbol}.US&i=d`,        // Try with .US suffix as fallback
+            `https://stooq.com/q/d/l/?s=${symbol}&i=d&f=d,o,h,l,c,v`, // Try with explicit format
+        ];
+        console.log(`🔍 ${symbol} appears to be an ETF - trying without suffix first`);
+    } else {
+        // For stocks: try with .US suffix first, then without
+        urls = [
+            `https://stooq.com/q/d/l/?s=${symbol}.US&i=d`,        // Try with .US suffix FIRST (US stocks)
+            `https://stooq.com/q/d/l/?s=${symbol}&i=d`,           // Try without suffix as fallback
+            `https://stooq.com/q/d/l/?s=${symbol}.us&i=d`,        // Try with .us suffix (lowercase fallback)
+            `https://stooq.com/q/d/l/?s=${symbol}&i=d&f=d,o,h,l,c,v`, // Try with explicit format as last resort
+        ];
+        console.log(`🔍 ${symbol} appears to be a stock - trying with .US suffix first`);
+    }
     
     // Try each URL until one works
     for (let i = 0; i < urls.length; i++) {
@@ -487,6 +500,36 @@ async function fetchStooqData(symbol) {
             }
         }
     }
+}
+
+// Helper function to determine if a symbol is likely an ETF
+function isETFSymbol(symbol) {
+    // Common ETF patterns
+    const etfPatterns = [
+        // Major ETF families
+        /^SPY$|^QQQ$|^VOO$|^IVV$|^VTI$|^VEA$|^VWO$|^BND$|^AGG$/i,
+        // Leveraged ETFs (2x, 3x)
+        /^TQQQ$|^SQQQ$|^UPRO$|^SPXL$|^SOXL$|^LABU$/i,
+        // Sector ETFs
+        /^XL[KFLVUBCRE]$|^XLC$/i,
+        // ARK ETFs
+        /^ARK[KWFGQX]$/i,
+        // Bond ETFs
+        /^TLT$|^TBT$|^TMF$|^TMV$|^SHY$|^IEF$/i,
+        // Commodity ETFs
+        /^GLD$|^SLV$|^USO$|^UNG$/i,
+        // International ETFs
+        /^EFA$|^EEM$|^IEMG$|^ACWI$|^VXUS$/i,
+        // Real Estate ETFs
+        /^VNQ$|^IYR$|^SCHH$/i,
+        // Volatility ETFs
+        /^UVXY$|^SVXY$|^VIXY$/i,
+        // Inverse ETFs
+        /^SQQQ$|^SPXS$|^SOXS$|^LABD$/i
+    ];
+    
+    // Check if symbol matches any ETF pattern
+    return etfPatterns.some(pattern => pattern.test(symbol));
 }
 
 // Helper function to fetch from a single URL
@@ -671,17 +714,16 @@ app.get('/api/cycles/:threshold/:etf?', async (req, res) => {
 
 // Helper function for single ETF cycles query - COMPLETELY REWRITTEN
 async function executeSingleETFCyclesQuery(etf, threshold) {
-    const tableName = `${etf.toLowerCase()}_all_history`;
-    
     return new Promise((resolve, reject) => {
-        // Simple query: just get all price data ordered by date
+        // Simple query: just get all price data ordered by date from unified table
         const query = `
             SELECT date, close
-            FROM ${tableName}
+            FROM historical_prices
+            WHERE symbol = ?
             ORDER BY date
         `;
 
-        db.all(query, [], (err, rows) => {
+        db.all(query, [etf.toUpperCase()], (err, rows) => {
             if (err) {
                 console.error('Database error:', err);
                 reject(new Error('Database error'));
@@ -714,17 +756,17 @@ app.get('/api/cycles/:threshold/:baseETF?/:leveragedETF?', (req, res) => {
         });
     }
 
-    // Validate ETF tables exist
+    // Validate symbols exist in database
     const { baseTable, leveragedTable } = getETFTableNames(baseETF, leveragedETF);
     
-    validateETFTable(baseETF, (err, baseExists) => {
+    validateSymbol(baseETF, (err, baseExists) => {
         if (err || !baseExists) {
-            return res.status(400).json({ error: `ETF data not available for ${baseETF}` });
+            return res.status(400).json({ error: `Symbol data not available for ${baseETF}` });
         }
         
-        validateETFTable(leveragedETF, (err, leveragedExists) => {
+        validateSymbol(leveragedETF, (err, leveragedExists) => {
             if (err || !leveragedExists) {
-                return res.status(400).json({ error: `ETF data not available for ${leveragedETF}` });
+                return res.status(400).json({ error: `Symbol data not available for ${leveragedETF}` });
             }
             
             // Proceed with dynamic query
@@ -927,19 +969,18 @@ app.get('/api/summary/:threshold/:etf?', async (req, res) => {
     }
 });
 
-// Helper function to execute summary query with dynamic ETF parameters
+// Helper function to execute summary query with dynamic symbol parameters
 async function executeSummaryQuery(etf, threshold) {
-    const tableName = `${etf.toLowerCase()}_all_history`;
-    
     return new Promise((resolve, reject) => {
     // Simple query: just get all price data ordered by date
     const query = `
         SELECT date, close
-        FROM ${tableName}
+        FROM historical_prices
+        WHERE symbol = ?
         ORDER BY date
     `;
 
-    db.all(query, [], (err, rows) => {
+    db.all(query, [etf], (err, rows) => {
         if (err) {
             console.error('Database error:', err);
                 reject(new Error('Database error'));
@@ -1021,32 +1062,32 @@ app.get('/api/chart-data/:threshold/:etf?', async (req, res) => {
 
 // Helper function for single ETF chart data query
 async function executeSingleETFChartDataQuery(etf, threshold) {
-    const tableName = `${etf.toLowerCase()}_all_history`;
-    
     return new Promise((resolve, reject) => {
-        // Get price data
+        // Get price data from unified historical_prices table
         const priceQuery = `
             SELECT date, close
-            FROM ${tableName}
+            FROM historical_prices
+            WHERE symbol = ?
             ORDER BY date
         `;
         
         // Get cycle data - simple query
         const cycleQuery = `
             SELECT date, close
-            FROM ${tableName}
+            FROM historical_prices
+            WHERE symbol = ?
             ORDER BY date
         `;
 
         // Execute both queries
-        db.all(priceQuery, [], (err, priceRows) => {
+        db.all(priceQuery, [etf.toUpperCase()], (err, priceRows) => {
             if (err) {
                 console.error('Database error:', err);
                 reject(new Error('Database error'));
                 return;
             }
 
-            db.all(cycleQuery, [], (err, cycleRows) => {
+            db.all(cycleQuery, [etf.toUpperCase()], (err, cycleRows) => {
                 if (err) {
                     console.error('Database error:', err);
                     reject(new Error('Database error'));
@@ -1095,17 +1136,17 @@ app.get('/api/chart-data/:threshold/:baseETF?/:leveragedETF?', (req, res) => {
         });
     }
 
-    // Validate ETF tables exist
+    // Validate symbols exist in database
     const { baseTable, leveragedTable } = getETFTableNames(baseETF, leveragedETF);
     
-    validateETFTable(baseETF, (err, baseExists) => {
+    validateSymbol(baseETF, (err, baseExists) => {
         if (err || !baseExists) {
-            return res.status(400).json({ error: `ETF data not available for ${baseETF}` });
+            return res.status(400).json({ error: `Symbol data not available for ${baseETF}` });
         }
         
-        validateETFTable(leveragedETF, (err, leveragedExists) => {
+        validateSymbol(leveragedETF, (err, leveragedExists) => {
             if (err || !leveragedExists) {
-                return res.status(400).json({ error: `ETF data not available for ${leveragedETF}` });
+                return res.status(400).json({ error: `Symbol data not available for ${leveragedETF}` });
             }
             
             // Proceed with dynamic chart data query
@@ -1221,8 +1262,8 @@ app.post('/api/analyze', (req, res) => {
 
     const query = `
         SELECT date, close
-        FROM qqq_all_history
-        WHERE 1=1 ${dateFilter}
+        FROM historical_prices
+        WHERE symbol = 'QQQ' ${dateFilter}
         ORDER BY date
     `;
 
@@ -1262,8 +1303,8 @@ app.get('/api/market-data', (req, res) => {
     // Get QQQ data
     const qqqQuery = `
         SELECT date, close, volume 
-        FROM qqq_all_history 
-        ${dateFilter}
+        FROM historical_prices 
+        WHERE symbol = 'QQQ' ${dateFilter}
         ORDER BY date DESC 
         LIMIT ${parseInt(limit)}
     `;
@@ -1271,8 +1312,8 @@ app.get('/api/market-data', (req, res) => {
     // Get TQQQ data
     const tqqqQuery = `
         SELECT date, close, volume 
-        FROM tqqq_all_history 
-        ${dateFilter}
+        FROM historical_prices 
+        WHERE symbol = 'TQQQ' ${dateFilter}
         ORDER BY date DESC 
         LIMIT ${parseInt(limit)}
     `;
@@ -1333,17 +1374,17 @@ app.post('/api/simulate', (req, res) => {
         });
     }
 
-    // Validate ETF tables exist
+    // Validate symbols exist in database
     const { baseTable, leveragedTable } = getETFTableNames(baseETF, leveragedETF);
     
-    validateETFTable(baseETF, (err, baseExists) => {
+    validateSymbol(baseETF, (err, baseExists) => {
         if (err || !baseExists) {
-            return res.status(400).json({ error: `ETF data not available for ${baseETF}` });
+            return res.status(400).json({ error: `Symbol data not available for ${baseETF}` });
         }
         
-        validateETFTable(leveragedETF, (err, leveragedExists) => {
+        validateSymbol(leveragedETF, (err, leveragedExists) => {
             if (err || !leveragedExists) {
-                return res.status(400).json({ error: `ETF data not available for ${leveragedETF}` });
+                return res.status(400).json({ error: `Symbol data not available for ${leveragedETF}` });
             }
             
             // Proceed with simulation
@@ -1359,7 +1400,7 @@ function executeSimulation(amount, startDate, endDate, threshold, monthlyInvestm
     const baseQuery = `
         SELECT date, close 
         FROM ${baseTable}
-        WHERE date >= ? AND date <= ? 
+        WHERE symbol = ? AND date >= ? AND date <= ? 
         ORDER BY date
     `;
 
@@ -1367,11 +1408,11 @@ function executeSimulation(amount, startDate, endDate, threshold, monthlyInvestm
     const leveragedQuery = `
         SELECT date, close 
         FROM ${leveragedTable}
-        WHERE date >= ? AND date <= ? 
+        WHERE symbol = ? AND date >= ? AND date <= ? 
         ORDER BY date
     `;
 
-    db.all(baseQuery, [startDate, endDate], (err, baseData) => {
+    db.all(baseQuery, [baseETF, startDate, endDate], (err, baseData) => {
         if (err) {
             console.error(`${baseETF} database error:`, err);
             return res.status(500).json({ error: 'Database error' });
@@ -1381,7 +1422,7 @@ function executeSimulation(amount, startDate, endDate, threshold, monthlyInvestm
             return res.status(400).json({ error: `No ${baseETF} data found for the specified date range` });
         }
 
-        db.all(leveragedQuery, [startDate, endDate], (err, leveragedData) => {
+        db.all(leveragedQuery, [leveragedETF, startDate, endDate], (err, leveragedData) => {
             if (err) {
                 console.error(`${leveragedETF} database error:`, err);
                 return res.status(500).json({ error: 'Database error' });
@@ -1939,7 +1980,7 @@ app.post('/api/bulk-fetch-historical-data', async (req, res) => {
           }
           
           // Fetch historical data from Stooq
-          const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&d1=${startDate}&d2=${endDate || new Date().toISOString().split('T')[0]}&i=d`;
+          const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}.US&d1=${startDate}&d2=${endDate || new Date().toISOString().split('T')[0]}&i=d`;
           
           const response = await fetch(stooqUrl);
           if (!response.ok) {
@@ -2125,24 +2166,9 @@ app.get('/api/symbols/:symbol/price-summary', async (req, res) => {
   try {
     const { symbol } = req.params;
     const upperSymbol = symbol.toUpperCase();
-    const tableName = `${upperSymbol.toLowerCase()}_all_history`;
     
-    // Check if the symbol table exists
-    const tableExistsStmt = db.prepare(`
-      SELECT name FROM sqlite_master 
-      WHERE type='table' AND name = ?
-    `);
-    const tableExists = tableExistsStmt.get(tableName);
-    
-    if (!tableExists) {
-      return res.status(404).json({
-        status: 'error',
-        message: `No price data found for symbol '${symbol}'`
-      });
-    }
-    
-    // Use callback version for proper results
-    db.get(`SELECT date, close FROM ${tableName} ORDER BY date DESC LIMIT 1`, (err, latestPrice) => {
+    // Check if the symbol exists in the unified table
+    db.get(`SELECT COUNT(*) as count FROM historical_prices WHERE symbol = ?`, [upperSymbol], (err, row) => {
       if (err) {
         console.error('Database error:', err);
         return res.status(500).json({
@@ -2152,31 +2178,49 @@ app.get('/api/symbols/:symbol/price-summary', async (req, res) => {
         });
       }
       
-      if (!latestPrice) {
+      if (row.count === 0) {
         return res.status(404).json({
           status: 'error',
           message: `No price data found for symbol '${symbol}'`
         });
       }
       
-      // Get recent prices
-      db.all(`SELECT date, close FROM ${tableName} ORDER BY date DESC LIMIT 5`, (err, recentPrices) => {
+      // Use callback version for proper results
+      db.get(`SELECT date, close FROM historical_prices WHERE symbol = ? ORDER BY date DESC LIMIT 1`, [upperSymbol], (err, latestPrice) => {
         if (err) {
-          console.error('Database error getting recent prices:', err);
-          recentPrices = [];
+          console.error('Database error:', err);
+          return res.status(500).json({
+            status: 'error',
+            message: 'Database error',
+            error: err.message
+          });
         }
         
-        res.json({
-          status: 'success',
-          symbol: upperSymbol,
-          latestPrice: latestPrice.close,
-          latestDate: latestPrice.date,
-          recentPrices: recentPrices || [],
-          dataPoints: (recentPrices || []).length
+        if (!latestPrice) {
+          return res.status(404).json({
+            status: 'error',
+            message: `No price data found for symbol '${symbol}'`
+          });
+        }
+        
+        // Get recent prices
+        db.all(`SELECT date, close FROM historical_prices WHERE symbol = ? ORDER BY date DESC LIMIT 5`, [upperSymbol], (err, recentPrices) => {
+          if (err) {
+            console.error('Database error getting recent prices:', err);
+            recentPrices = [];
+          }
+          
+          res.json({
+            status: 'success',
+            symbol: upperSymbol,
+            latestPrice: latestPrice.close,
+            latestDate: latestPrice.date,
+            recentPrices: recentPrices || [],
+            dataPoints: (recentPrices || []).length
+          });
         });
       });
     });
-    
   } catch (error) {
     console.error('Error fetching price summary:', error);
     res.status(500).json({
@@ -2195,35 +2239,22 @@ app.post('/api/symbols/:symbol/refresh', async (req, res) => {
     
     console.log(`Refreshing data for ${symbol}`);
     
-    // Fetch from Stooq
-    const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&d1=${startDate}&d2=${endDate || new Date().toISOString().split('T')[0]}&i=d`;
+    // Fetch from Stooq using the same function as other endpoints
+    const historicalData = await fetchStooqData(symbol);
     
-    const response = await fetch(stooqUrl);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (!historicalData || historicalData.length === 0) {
+      throw new Error('No historical data received from Stooq');
     }
     
-    const csvText = await response.text();
-    if (!csvText || csvText.includes('N/A') || csvText.length < 100) {
-      throw new Error('Invalid or empty data received from Stooq');
+    // Use the historical data directly instead of parsing CSV
+    if (!historicalData || historicalData.length === 0) {
+      throw new Error('No historical data received from Stooq');
     }
     
-    // Parse and insert data (similar logic to bulk fetch)
-    const lines = csvText.trim().split('\n');
-    const headers = lines[0].split(',');
-    
-    const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
-    const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
-    const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
-    const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
-    const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
-    const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
-    
-    if (dateIndex === -1 || closeIndex === -1) {
-      throw new Error('Required columns not found');
-    }
-    
-    const dataRows = lines.slice(1).filter(line => line.trim() && !line.includes('N/A'));
+    // Filter out any invalid data rows
+    const dataRows = historicalData.filter(row => 
+      row.date && row.close && !isNaN(row.close)
+    );
     
     if (dataRows.length === 0) {
       throw new Error('No valid data rows found');
@@ -2242,20 +2273,17 @@ app.post('/api/symbols/:symbol/refresh', async (req, res) => {
       `);
       
       let insertedRows = 0;
-      for (const line of dataRows) {
-        const values = line.split(',');
-        if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
-          const date = values[dateIndex];
-          const open = parseFloat(values[openIndex]) || null;
-          const high = parseFloat(values[highIndex]) || null;
-          const low = parseFloat(values[lowIndex]) || null;
-          const close = parseFloat(values[closeIndex]) || null;
-          const volume = parseInt(values[volumeIndex]) || null;
-          
-          if (date && close && !isNaN(close)) {
-            insertStmt.run(symbol.toUpperCase(), date, open, high, low, close, volume);
-            insertedRows++;
-          }
+      for (const row of dataRows) {
+        const date = row.date;
+        const open = row.open || null;
+        const high = row.high || null;
+        const low = row.low || null;
+        const close = row.close || null;
+        const volume = row.volume || null;
+        
+        if (date && close && !isNaN(close)) {
+          insertStmt.run(symbol.toUpperCase(), date, open, high, low, close, volume);
+          insertedRows++;
         }
       }
       
@@ -2284,6 +2312,340 @@ app.post('/api/symbols/:symbol/refresh', async (req, res) => {
   }
 });
 
+// Manual trigger for US symbols population
+app.post('/api/admin/populate-symbols', async (req, res) => {
+    try {
+        console.log('🔄 Manual trigger for US symbols population...');
+        
+        // Check if population is already running
+        if (global.populationInProgress) {
+            return res.status(409).json({
+                status: 'error',
+                message: 'Population already in progress'
+            });
+        }
+        
+        global.populationInProgress = true;
+        
+        // Start population in background
+        populateAllUSSymbols()
+            .then(() => {
+                global.populationInProgress = false;
+                console.log('✅ Manual population completed');
+            })
+            .catch(error => {
+                global.populationInProgress = false;
+                console.error('❌ Manual population failed:', error);
+            });
+        
+        res.json({
+            status: 'success',
+            message: 'US symbols population started',
+            note: 'Check server logs for progress'
+        });
+        
+    } catch (error) {
+        console.error('Error triggering population:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Failed to trigger population',
+            error: error.message
+        });
+    }
+});
+
+// Check population status
+app.get('/api/admin/population-status', (req, res) => {
+    res.json({
+        status: 'success',
+        populationInProgress: global.populationInProgress || false,
+        message: global.populationInProgress ? 'Population in progress' : 'No population running'
+    });
+});
+
+// Test bulk download availability
+app.get('/api/admin/test-bulk-download', async (req, res) => {
+    try {
+        console.log('🧪 Testing bulk download availability...');
+        const result = await attemptBulkDownload();
+        
+        res.json({
+            status: 'success',
+            bulk_download_test: result,
+            message: 'Bulk download test completed'
+        });
+        
+    } catch (error) {
+        console.error('Error testing bulk download:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Failed to test bulk download',
+            error: error.message
+        });
+    }
+});
+
+// Get comprehensive database health report
+app.get('/api/admin/database-health', (req, res) => {
+    db.serialize(() => {
+        // Get overall statistics
+        const overallQuery = `
+            SELECT 
+                COUNT(DISTINCT symbol) as total_symbols,
+                COUNT(*) as total_price_records,
+                AVG(records_per_symbol) as avg_records_per_symbol
+            FROM (
+                SELECT symbol, COUNT(*) as records_per_symbol
+                FROM historical_prices
+                GROUP BY symbol
+            ) symbol_counts
+        `;
+        
+        db.get(overallQuery, [], (err, overallResult) => {
+            if (err) {
+                return res.status(500).json({
+                    status: 'error',
+                    message: 'Failed to get overall statistics',
+                    error: err.message
+                });
+            }
+            
+            // Get data freshness analysis
+            const freshnessQuery = `
+                SELECT 
+                    status,
+                    COUNT(*) as symbol_count,
+                    AVG(CAST((julianday('now') - julianday(last_updated)) * 24 AS INTEGER)) as avg_hours_since_update
+                FROM data_freshness
+                GROUP BY status
+            `;
+            
+            db.all(freshnessQuery, [], (err, freshnessResults) => {
+                if (err) {
+                    return res.status(500).json({
+                        status: 'error',
+                        message: 'Failed to get freshness analysis',
+                        error: err.message
+                    });
+                }
+                
+                // Get symbols that need updates
+                const needsUpdateQuery = `
+                    SELECT 
+                        hp.symbol,
+                        hp.record_count,
+                        hp.latest_date,
+                        df.last_updated,
+                        df.status,
+                        df.error_count,
+                        CASE 
+                            WHEN hp.latest_date IS NULL THEN 'No data'
+                            WHEN df.last_updated IS NULL THEN 'Never updated'
+                            WHEN julianday('now') - julianday(df.last_updated) > 1 THEN 'Stale data'
+                            WHEN julianday('now') - julianday(hp.latest_date) > 5 THEN 'Outdated data'
+                            ELSE 'Up to date'
+                        END as update_status
+                    FROM (
+                        SELECT symbol, COUNT(*) as record_count, MAX(date) as latest_date
+                        FROM historical_prices
+                        GROUP BY symbol
+                    ) hp
+                    LEFT JOIN data_freshness df ON hp.symbol = df.symbol
+                    ORDER BY 
+                        CASE update_status
+                            WHEN 'No data' THEN 1
+                            WHEN 'Never updated' THEN 2
+                            WHEN 'Stale data' THEN 3
+                            WHEN 'Outdated data' THEN 4
+                            ELSE 5
+                        END,
+                        df.error_count DESC
+                    LIMIT 20
+                `;
+                
+                db.all(needsUpdateQuery, [], (err, updateResults) => {
+                    if (err) {
+                        return res.status(500).json({
+                            status: 'error',
+                            message: 'Failed to get update analysis',
+                            error: err.message
+                        });
+                    }
+                    
+                    res.json({
+                        status: 'success',
+                        health_report: {
+                            overall: {
+                                total_symbols: overallResult.total_symbols || 0,
+                                total_price_records: overallResult.total_price_records || 0,
+                                avg_records_per_symbol: Math.round(overallResult.avg_records_per_symbol || 0)
+                            },
+                            freshness: freshnessResults,
+                            symbols_needing_updates: updateResults,
+                            recommendations: generateHealthRecommendations(overallResult, freshnessResults, updateResults)
+                        }
+                    });
+                });
+            });
+        });
+    });
+});
+
+// Helper function to generate health recommendations
+function generateHealthRecommendations(overall, freshness, updates) {
+    const recommendations = [];
+    
+    // Check data coverage
+    if (overall.total_symbols < 100) {
+        recommendations.push('⚠️ Low symbol coverage - consider adding more symbols');
+    }
+    
+    // Check data freshness
+    const staleSymbols = updates.filter(s => s.update_status !== 'Up to date').length;
+    if (staleSymbols > 0) {
+        recommendations.push(`🔄 ${staleSymbols} symbols need updates - run population process`);
+    }
+    
+    // Check error rates
+    const errorSymbols = updates.filter(s => s.error_count > 0).length;
+    if (errorSymbols > 0) {
+        recommendations.push(`❌ ${errorSymbols} symbols have errors - investigate data quality`);
+    }
+    
+    // Check data completeness
+    if (overall.avg_records_per_symbol < 100) {
+        recommendations.push('📊 Low data completeness - some symbols may have insufficient historical data');
+    }
+    
+    if (recommendations.length === 0) {
+        recommendations.push('✅ Database is healthy and up-to-date');
+    }
+    
+    return recommendations;
+}
+
+// Get database summary (simplified version)
+app.get('/api/admin/database-summary', (req, res) => {
+    db.serialize(() => {
+        // Get symbol counts by exchange
+        const exchangeQuery = `
+            SELECT 
+                exchange,
+                COUNT(*) as symbol_count,
+                SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_count
+            FROM symbols 
+            GROUP BY exchange
+        `;
+        
+        db.all(exchangeQuery, [], (err, exchangeResults) => {
+            if (err) {
+                return res.status(500).json({
+                    status: 'error',
+                    message: 'Failed to get exchange summary',
+                    error: err.message
+                });
+            }
+            
+            // Get total historical price records
+            db.get('SELECT COUNT(*) as total_records FROM historical_prices', (err, priceResult) => {
+                if (err) {
+                    return res.status(500).json({
+                        status: 'error',
+                        message: 'Failed to get price records count',
+                        error: err.message
+                    });
+                }
+                
+                // Get recent activity
+                db.get(`
+                    SELECT 
+                        COUNT(*) as recent_symbols,
+                        MAX(last_updated) as last_update
+                    FROM data_freshness 
+                    WHERE last_updated > datetime('now', '-1 day')
+                `, (err, recentResult) => {
+                    if (err) {
+                        return res.status(500).json({
+                            status: 'error',
+                            message: 'Failed to get recent activity',
+                            error: err.message
+                        });
+                    }
+                    
+                    res.json({
+                        status: 'success',
+                        summary: {
+                            exchanges: exchangeResults,
+                            total_price_records: priceResult.total_records,
+                            recent_activity: {
+                                symbols_updated_today: recentResult.recent_symbols || 0,
+                                last_update: recentResult.last_update
+                            }
+                        }
+                    });
+                });
+            });
+        });
+    });
+});
+
+// Get symbols that need updates
+app.get('/api/admin/symbols-needing-updates', (req, res) => {
+    const limit = parseInt(req.query.limit) || 50;
+    
+    db.serialize(() => {
+        const needsUpdateQuery = `
+            SELECT 
+                hp.symbol,
+                hp.record_count,
+                hp.latest_date,
+                df.last_updated,
+                df.status,
+                df.error_count,
+                CASE 
+                    WHEN hp.latest_date IS NULL THEN 'No data'
+                    WHEN df.last_updated IS NULL THEN 'Never updated'
+                    WHEN julianday('now') - julianday(df.last_updated) > 1 THEN 'Stale data'
+                    WHEN julianday('now') - julianday(hp.latest_date) > 5 THEN 'Outdated data'
+                    ELSE 'Up to date'
+                END as update_status,
+                CASE 
+                    WHEN hp.latest_date IS NULL THEN 1
+                    WHEN df.last_updated IS NULL THEN 2
+                    WHEN julianday('now') - julianday(df.last_updated) > 1 THEN 3
+                    WHEN julianday('now') - julianday(hp.latest_date) > 5 THEN 4
+                    ELSE 5
+                END as priority
+            FROM (
+                SELECT symbol, COUNT(*) as record_count, MAX(date) as latest_date
+                FROM historical_prices
+                GROUP BY symbol
+            ) hp
+            LEFT JOIN data_freshness df ON hp.symbol = df.symbol
+            WHERE update_status != 'Up to date'
+            ORDER BY priority ASC, df.error_count DESC
+            LIMIT ?
+        `;
+        
+        db.all(needsUpdateQuery, [limit], (err, results) => {
+            if (err) {
+                return res.status(500).json({
+                    status: 'error',
+                    message: 'Failed to get symbols needing updates',
+                    error: err.message
+                });
+            }
+            
+            res.json({
+                status: 'success',
+                symbols_needing_updates: results,
+                count: results.length,
+                limit: limit
+            });
+        });
+    });
+});
+
 // Serve static files (must be last to not interfere with API routes)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
@@ -2292,11 +2654,633 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
+// Function to fetch all US symbols from Stooq and populate database
+async function populateAllUSSymbols() {
+    console.log('🔄 Starting comprehensive US symbols population...');
+    console.log('📊 Target: Real US symbols from SEC + Major ETFs');
+    
+    // First, attempt bulk download to see if it's available
+    console.log('🚀 Attempting bulk download first...');
+    const bulkResult = await attemptBulkDownload();
+    
+    if (bulkResult.accessible && bulkResult.hasDownloads) {
+        console.log('🎯 Bulk download available! This would be much faster than individual requests.');
+        console.log('💡 Consider implementing bulk download processing for production use.');
+    } else if (bulkResult.accessible) {
+        console.log('⚠️ Bulk URLs accessible but no obvious downloads found.');
+        console.log('💡 May need to implement custom scraping logic for bulk data.');
+    } else {
+        console.log('❌ Bulk download not accessible, proceeding with individual symbol requests.');
+    }
+    
+    // Define the symbol categories
+    const symbolCategories = [
+        { name: 'US Stocks (SEC)', prefix: 'us_stocks', type: 'stock', source: 'sec' },
+        { name: 'Major ETFs', prefix: 'major_etfs', type: 'etf', source: 'curated' }
+    ];
+    
+    // Add ETF symbols to the stock list for comprehensive coverage
+    console.log('🔄 Adding ETF symbols to the main symbol list for comprehensive coverage...');
+    
+    let totalSymbolsProcessed = 0;
+    let totalSymbolsSuccess = 0;
+    let totalSymbolsFailed = 0;
+    const startTime = Date.now();
+    
+    // Real-time rate tracking
+    let recentSymbolsProcessed = 0;
+    let recentStartTime = Date.now();
+    const RATE_UPDATE_INTERVAL = 25; // Update rate every 25 symbols
+    
+    for (const category of symbolCategories) {
+        console.log(`\n📊 Processing ${category.name}...`);
+        
+        try {
+            let symbols = [];
+            
+            // Fetch symbols based on category
+            if (category.source === 'sec') {
+                const stockSymbols = await fetchSECCompanyTickers();
+                const etfSymbols = await fetchETFSymbols();
+                // Combine stocks and ETFs for comprehensive coverage
+                symbols = [...stockSymbols, ...etfSymbols];
+                console.log(`📊 Combined: ${stockSymbols.length} stocks + ${etfSymbols.length} ETFs = ${symbols.length} total symbols`);
+            } else if (category.source === 'curated') {
+                symbols = await fetchETFSymbols();
+            }
+            
+            console.log(`✅ Found ${symbols.length} symbols for ${category.name}`);
+            
+            // Process each symbol with better progress tracking
+            for (let i = 0; i < symbols.length; i++) {
+                const symbol = symbols[i];
+                totalSymbolsProcessed++;
+                
+                try {
+                    // Add symbol to database if not exists
+                    await addSymbolToDatabase(symbol, category.type, category.name);
+                    
+                    // Fetch historical data (with rate limiting)
+                    const rowsInserted = await fetchAndStoreHistoricalData(symbol);
+                    totalSymbolsSuccess++;
+                    
+                    // Progress update every 25 symbols with real-time rate tracking
+                    if (totalSymbolsProcessed % RATE_UPDATE_INTERVAL === 0) {
+                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                        const overallRate = (totalSymbolsProcessed / elapsed).toFixed(1);
+                        
+                        // Calculate recent rate (last 25 symbols)
+                        const recentElapsed = ((Date.now() - recentStartTime) / 1000).toFixed(1);
+                        const recentRate = recentElapsed > 0 ? (RATE_UPDATE_INTERVAL / recentElapsed).toFixed(1) : 'N/A';
+                        
+                        const successRate = ((totalSymbolsSuccess / totalSymbolsProcessed) * 100).toFixed(1);
+                        console.log(`📈 Progress: ${totalSymbolsProcessed} symbols processed (Overall: ${overallRate}/sec, Recent: ${recentRate}/sec, ${successRate}% success) - ${symbol} added with ${rowsInserted} data points`);
+                        
+                        // Reset recent tracking
+                        recentSymbolsProcessed = 0;
+                        recentStartTime = Date.now();
+                    }
+                    
+                    // Track recent processing for rate calculation
+                    recentSymbolsProcessed++;
+                    
+                    // Rate limiting: wait 25ms between requests (40 req/sec - more aggressive but still respectful)
+                    await new Promise(resolve => setTimeout(resolve, 25));
+                    
+                } catch (error) {
+                    console.log(`⚠️ Failed to process ${symbol}: ${error.message}`);
+                    totalSymbolsFailed++;
+                    
+                    // If we have too many failures, slow down
+                    if (totalSymbolsFailed > 50) {
+                        console.log(`🔄 Too many failures, increasing delay to 200ms`);
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                }
+            }
+            
+            console.log(`✅ Completed ${category.name}: ${symbols.length} symbols processed`);
+            
+        } catch (error) {
+            console.error(`❌ Error processing ${category.name}:`, error);
+        }
+    }
+    
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`\n🎯 US Symbols Population Complete!`);
+    console.log(`⏱️ Total Time: ${totalTime} seconds`);
+    console.log(`📊 Total Processed: ${totalSymbolsProcessed}`);
+    console.log(`✅ Successful: ${totalSymbolsSuccess}`);
+    console.log(`❌ Failed: ${totalSymbolsFailed}`);
+    console.log(`📈 Success Rate: ${((totalSymbolsSuccess / totalSymbolsProcessed) * 100).toFixed(1)}%`);
+    
+    // Log database statistics
+    logDatabaseStats();
+}
+
+// Function to fetch symbols from SEC company tickers
+async function fetchSECCompanyTickers() {
+    try {
+        console.log('🔍 Fetching SEC company tickers...');
+        
+        // Try multiple approaches to get SEC data
+        const secUrls = [
+            'https://www.sec.gov/files/company_tickers.json',
+            'https://www.sec.gov/files/company_tickers_exchange.json',
+            'https://www.sec.gov/files/company_tickers_mf.json'
+        ];
+        
+        let secData = null;
+        
+        for (const url of secUrls) {
+            try {
+                console.log(`📡 Trying SEC URL: ${url}`);
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; StockAnalysis/1.0)',
+                        'Accept': 'application/json'
+                    },
+                    timeout: 10000
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log(`✅ Successfully fetched SEC data from ${url}`);
+                    secData = data;
+                    break;
+                } else {
+                    console.log(`⚠️ SEC URL ${url} returned status: ${response.status}`);
+                }
+            } catch (error) {
+                console.log(`❌ Failed to fetch from ${url}: ${error.message}`);
+            }
+        }
+        
+        if (!secData) {
+            console.log('⚠️ Could not fetch SEC data, falling back to comprehensive symbol list');
+            return fetchComprehensiveSymbolList();
+        }
+        
+        // Parse SEC data and extract symbols
+        const symbols = [];
+        
+        if (secData && typeof secData === 'object') {
+            // Handle different SEC data formats
+            if (Array.isArray(secData)) {
+                // Array format
+                secData.forEach(company => {
+                    if (company.ticker && typeof company.ticker === 'string') {
+                        symbols.push(company.ticker.toUpperCase());
+                    }
+                });
+            } else {
+                // Object format (most common)
+                Object.values(secData).forEach(company => {
+                    if (company && company.ticker && typeof company.ticker === 'string') {
+                        symbols.push(company.ticker.toUpperCase());
+                    }
+                });
+            }
+        }
+        
+        console.log(`📊 Extracted ${symbols.length} symbols from SEC data`);
+        
+        // Remove duplicates and filter valid symbols
+        const uniqueSymbols = [...new Set(symbols)].filter(symbol => 
+            symbol && symbol.length <= 5 && /^[A-Z]+$/.test(symbol)
+        );
+        
+        console.log(`✅ Final unique symbols: ${uniqueSymbols.length}`);
+        
+        return uniqueSymbols;
+        
+    } catch (error) {
+        console.error('❌ Error fetching SEC company tickers:', error);
+        console.log('🔄 Falling back to comprehensive symbol list');
+        return fetchComprehensiveSymbolList();
+    }
+}
+
+// Fallback function for comprehensive symbol list
+function fetchComprehensiveSymbolList() {
+    console.log('📋 Using comprehensive fallback symbol list...');
+    
+    const comprehensiveSymbols = [
+        // Major US Stocks (Top 500+ by market cap)
+        'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'NFLX', 'ADBE', 'CRM',
+        'PYPL', 'INTC', 'AMD', 'QCOM', 'TXN', 'AVGO', 'CSCO', 'PEP', 'COST', 'ABNB',
+        'SBUX', 'TMUS', 'CMCSA', 'ADP', 'MDLZ', 'GILD', 'REGN', 'VRTX', 'KLAC', 'LRCX',
+        'MU', 'ADI', 'ASML', 'SNPS', 'CDNS', 'MELI', 'CHTR', 'MAR', 'BKNG', 'ORLY',
+        'PAYX', 'ROST', 'IDXX', 'DXCM', 'CPRT', 'FAST', 'CTAS', 'ODFL', 'CTSH', 'WDAY',
+        'ZM', 'PTON', 'CRWD', 'OKTA', 'TEAM', 'PLTR', 'SNOW', 'DDOG', 'NET', 'SQ',
+        'SHOP', 'ROKU', 'SPOT', 'PINS', 'SNAP', 'UBER', 'LYFT', 'DASH', 'GRAB',
+        'RBLX', 'HOOD', 'COIN', 'RIVN', 'LCID', 'NIO', 'XPEV', 'LI', 'BIDU', 'JD',
+        'PDD', 'BABA', 'TCEHY', 'NTES', 'BILI', 'IQ', 'HUYA', 'DOYU', 'TME', 'VIPS',
+        'BIIB', 'ALGN', 'ISRG', 'ILMN', 'WAT', 'TMO', 'DHR', 'ABT', 'JNJ', 'PFE',
+        'MRK', 'LLY', 'UNH', 'ANTM', 'JPM', 'BAC', 'WFC', 'GS', 'MS', 'C',
+        'USB', 'PNC', 'TFC', 'COF', 'AXP', 'V', 'MA', 'DFS', 'SYF', 'ALLY',
+        'KEY', 'HBAN', 'FITB', 'ZION', 'HD', 'LOW', 'TGT', 'WMT', 'TJX', 'BURL',
+        'ULTA', 'LULU', 'NKE', 'UA', 'SKX', 'FL', 'FOSL', 'GPS', 'ANF', 'URBN',
+        'GES', 'JWN', 'XOM', 'CVX', 'COP', 'EOG', 'SLB', 'HAL', 'BKR', 'NOV',
+        'FTI', 'WMB', 'KMI', 'OKE', 'MPC', 'VLO', 'PSX', 'HES', 'DVN', 'PXD',
+        'APA', 'OXY', 'DUK', 'SO', 'D', 'EXC', 'AEP', 'DTE', 'EIX', 'PEG',
+        'WEC', 'XEL', 'DIS', 'MCD', 'KO', 'PG', 'ABBV', 'ACN', 'LLY', 'TXN',
+        'VZ', 'UNH', 'CI', 'HUM', 'AET', 'CNC', 'WCG', 'DVA', 'HCA', 'UHS',
+        'THC', 'CYH', 'LPNT', 'KND', 'ADUS', 'AMED', 'CHE', 'SEM', 'ENSG', 'ACHC',
+        'RF', 'HBHC', 'STI', 'BBT', 'RBLX', 'HOOD', 'COIN', 'RIVN', 'LCID', 'NIO',
+        'XPEV', 'LI', 'BIDU', 'JD', 'PDD', 'BABA', 'TCEHY', 'NTES', 'BILI', 'IQ',
+        'HUYA', 'DOYU', 'TME', 'VIPS', 'BIIB', 'ALGN', 'ISRG', 'ILMN', 'WAT',
+        'TMO', 'DHR', 'ABT', 'JNJ', 'PFE', 'MRK', 'LLY', 'UNH', 'ANTM', 'JPM',
+        'BAC', 'WFC', 'GS', 'MS', 'C', 'USB', 'PNC', 'TFC', 'COF', 'AXP',
+        'V', 'MA', 'DFS', 'SYF', 'ALLY', 'KEY', 'HBAN', 'FITB', 'ZION', 'HD',
+        'LOW', 'TGT', 'WMT', 'TJX', 'BURL', 'ULTA', 'LULU', 'NKE', 'UA', 'SKX',
+        'FL', 'FOSL', 'GPS', 'ANF', 'URBN', 'GES', 'JWN', 'XOM', 'CVX', 'COP',
+        'EOG', 'SLB', 'HAL', 'BKR', 'NOV', 'FTI', 'WMB', 'KMI', 'OKE', 'MPC',
+        'VLO', 'PSX', 'HES', 'DVN', 'PXD', 'APA', 'OXY', 'DUK', 'SO', 'D',
+        'EXC', 'AEP', 'DTE', 'EIX', 'PEG', 'WEC', 'XEL', 'DIS', 'MCD', 'KO',
+        'PG', 'ABBV', 'ACN', 'LLY', 'TXN', 'VZ', 'UNH', 'CI', 'HUM', 'AET',
+        'CNC', 'WCG', 'DVA', 'HCA', 'UHS', 'THC', 'CYH', 'LPNT', 'KND', 'ADUS',
+        'AMED', 'CHE', 'SEM', 'ENSG', 'ACHC', 'RF', 'HBHC', 'STI', 'BBT'
+    ];
+    
+    return comprehensiveSymbols;
+}
+
+// Function to fetch symbols for a specific exchange (now uses SEC data)
+async function fetchExchangeSymbols(exchangePrefix, expectedCount) {
+    console.log(`🔍 Fetching symbols for ${exchangePrefix}...`);
+    
+    // Try to get SEC company tickers first
+    const secSymbols = await fetchSECCompanyTickers();
+    
+    if (secSymbols && secSymbols.length > 0) {
+        console.log(`✅ Using ${secSymbols.length} symbols from SEC data`);
+        return secSymbols;
+    }
+    
+    // Fallback to comprehensive list if SEC fails
+    console.log('⚠️ Falling back to comprehensive symbol list');
+    return fetchComprehensiveSymbolList();
+}
+
+// Function to fetch ETF symbols from reliable sources
+async function fetchETFSymbols() {
+    console.log('🔍 Fetching ETF symbols...');
+    
+    // Major ETF symbols that are definitely active
+    const etfSymbols = [
+        // Major Market ETFs
+        'SPY', 'VOO', 'IVV', 'VTI', 'VEA', 'VWO', 'BND', 'AGG', 'TLT', 'GLD',
+        'SLV', 'USO', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLY', 'XLU', 'XLB',
+        'IWM', 'EFA', 'EEM', 'IEMG', 'ACWI', 'ACWX', 'VXUS', 'VT', 'BNDX', 'VWOB',
+        // Tech & Growth ETFs
+        'QQQ', 'TQQQ', 'SQQQ', 'XLK', 'VGT', 'SOXL', 'SOXS', 'LABU', 'LABD', 'FAS',
+        'FAZ', 'ERX', 'ERY', 'DPST', 'DRN', 'DRV', 'TMF', 'TMV', 'UPRO', 'SPXL',
+        'SPXS', 'SPXU', 'UDOW', 'SDOW', 'TZA', 'TNA', 'UVXY', 'SVXY', 'VIXY',
+        // Sector ETFs
+        'XLRE', 'XLC', 'ARKK', 'ARKW', 'ARKF', 'ARKG', 'ARKQ', 'ARKX', 'TAN', 'ICLN',
+        'PBW', 'DRIV', 'ROBO', 'BOTZ', 'AIQ', 'BLOK', 'FINX', 'HACK', 'IBB', 'XBI',
+        'IHI', 'IHF', 'VNQ', 'IYR', 'SCHH', 'RWR', 'ICF', 'XLRE'
+    ];
+    
+    console.log(`✅ Found ${etfSymbols.length} ETF symbols`);
+    return etfSymbols;
+}
+
+// Note: Removed generateAdditionalSymbols function - now using real SEC data
+
+// Function to log database statistics
+function logDatabaseStats() {
+    return new Promise((resolve) => {
+        db.serialize(() => {
+            // Count symbols
+            db.get('SELECT COUNT(*) as count FROM symbols', (err, result) => {
+                if (err) {
+                    console.log('❌ Error counting symbols:', err.message);
+                    resolve();
+                    return;
+                }
+                const symbolCount = result.count;
+                
+                // Count historical price records
+                db.get('SELECT COUNT(*) as count FROM historical_prices', (err, result) => {
+                    if (err) {
+                        console.log('❌ Error counting historical prices:', err.message);
+                        resolve();
+                        return;
+                    }
+                    const priceCount = result.count;
+                    
+                    // Count active symbols
+                    db.get('SELECT COUNT(*) as count FROM symbols WHERE is_active = 1', (err, result) => {
+                        if (err) {
+                            console.log('❌ Error counting active symbols:', err.message);
+                            resolve();
+                            return;
+                        }
+                        const activeCount = result.count;
+                        
+                        console.log('\n📊 Database Statistics:');
+                        console.log(`   Total Symbols: ${symbolCount}`);
+                        console.log(`   Active Symbols: ${activeCount}`);
+                        console.log(`   Historical Price Records: ${priceCount.toLocaleString()}`);
+                        console.log(`   Average Records per Symbol: ${Math.round(priceCount / symbolCount)}`);
+                        
+                        resolve();
+                    });
+                });
+            });
+        });
+    });
+}
+
+// Check if population should be skipped (for development/testing)
+const SKIP_POPULATION = process.env.SKIP_POPULATION === 'true' || process.argv.includes('--skip-population');
+
+// Function to add symbol to database
+async function addSymbolToDatabase(symbol, type, exchange) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare(`
+            INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        
+        stmt.run(symbol, `${symbol} ${type}`, type.toUpperCase(), 'Unknown', exchange.toUpperCase(), 1, (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+// Function to check local database for existing data
+async function checkLocalDatabaseData(symbol) {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            // Check if we have data for this symbol
+            const checkQuery = `
+                SELECT 
+                    COUNT(*) as record_count,
+                    MIN(date) as earliest_date,
+                    MAX(date) as latest_date,
+                    MAX(last_updated) as last_updated
+                FROM historical_prices hp
+                LEFT JOIN data_freshness df ON hp.symbol = df.symbol
+                WHERE hp.symbol = ?
+            `;
+            
+            db.get(checkQuery, [symbol.toUpperCase()], (err, result) => {
+                if (err) {
+                    reject(new Error(`Database check failed: ${err.message}`));
+                    return;
+                }
+                
+                const dataStatus = {
+                    hasData: result.record_count > 0,
+                    recordCount: result.record_count || 0,
+                    earliestDate: result.earliest_date,
+                    latestDate: result.latest_date,
+                    lastUpdated: result.last_updated,
+                    needsUpdate: false,
+                    updateReason: null
+                };
+                
+                // Determine if update is needed
+                if (!dataStatus.hasData) {
+                    dataStatus.needsUpdate = true;
+                    dataStatus.updateReason = 'No data exists';
+                } else {
+                    // Check if data is recent enough (within last 24 hours)
+                    const lastUpdate = new Date(dataStatus.lastUpdated);
+                    const now = new Date();
+                    const hoursSinceUpdate = (now - lastUpdate) / (1000 * 60 * 60);
+                    
+                    if (hoursSinceUpdate > 24) {
+                        dataStatus.needsUpdate = true;
+                        dataStatus.updateReason = `Data is ${hoursSinceUpdate.toFixed(1)} hours old`;
+                    }
+                    
+                    // Check if we have recent data (within last 5 trading days)
+                    if (dataStatus.latestDate) {
+                        const latestDate = new Date(dataStatus.latestDate);
+                        const tradingDaysDiff = Math.floor((now - latestDate) / (1000 * 60 * 60 * 24));
+                        
+                        if (tradingDaysDiff > 5) {
+                            dataStatus.needsUpdate = true;
+                            dataStatus.updateReason = `Latest data is ${tradingDaysDiff} days old`;
+                        }
+                    }
+                }
+                
+                resolve(dataStatus);
+            });
+        });
+    });
+}
+
+// Function to fetch and store historical data with smart delta updates
+async function fetchAndStoreHistoricalData(symbol) {
+    try {
+        // First, check what we already have in the local database
+        console.log(`🔍 Checking local database for ${symbol}...`);
+        const localDataStatus = await checkLocalDatabaseData(symbol);
+        
+        if (!localDataStatus.needsUpdate) {
+            console.log(`✅ ${symbol}: Local data is up-to-date (${localDataStatus.recordCount} records, last updated: ${localDataStatus.lastUpdated})`);
+            return localDataStatus.recordCount;
+        }
+        
+        console.log(`📥 ${symbol}: ${localDataStatus.updateReason} - fetching new data...`);
+        
+        // Fetch new data from Stooq
+        const historicalData = await fetchStooqData(symbol);
+        
+        if (!historicalData || historicalData.length === 0) {
+            throw new Error('No historical data received');
+        }
+        
+        // Store in database with smart merging
+        return new Promise((resolve, reject) => {
+            db.serialize(() => {
+                let insertedRows = 0;
+                let updatedRows = 0;
+                
+                // Prepare statements
+                const insertStmt = db.prepare(`
+                    INSERT OR REPLACE INTO historical_prices (symbol, date, open, high, low, close, volume)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `);
+                
+                // Process each data row
+                for (const row of historicalData) {
+                    if (row.date && row.close && !isNaN(row.close)) {
+                        // Check if this date already exists
+                        const existingQuery = `
+                            SELECT COUNT(*) as record_count FROM historical_prices 
+                            WHERE symbol = ? AND date = ?
+                        `;
+                        
+                        db.get(existingQuery, [symbol.toUpperCase(), row.date], (err, existing) => {
+                            if (err) {
+                                console.log(`⚠️ Error checking existing data for ${symbol} ${row.date}: ${err.message}`);
+                                return;
+                            }
+                            
+                            if (existing.record_count === 0) {
+                                // New data - insert
+                                insertStmt.run(
+                                    symbol.toUpperCase(), 
+                                    row.date, 
+                                    row.open || null, 
+                                    row.high || null, 
+                                    row.low || null, 
+                                    row.close || null, 
+                                    row.volume || null
+                                );
+                                insertedRows++;
+                            } else {
+                                // Existing data - update (INSERT OR REPLACE will handle this)
+                                updatedRows++;
+                            }
+                        });
+                    }
+                }
+                
+                // Update freshness
+                const upsertFreshness = db.prepare(`
+                    INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+                    VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
+                `);
+                upsertFreshness.run(symbol.toUpperCase());
+                
+                const totalProcessed = insertedRows + updatedRows;
+                console.log(`✅ ${symbol}: Processed ${totalProcessed} records (${insertedRows} new, ${updatedRows} updated)`);
+                
+                resolve(totalProcessed);
+            });
+        });
+        
+    } catch (error) {
+        // Update error count in freshness table
+        try {
+            const updateErrorStmt = db.prepare(`
+                INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+                VALUES (?, CURRENT_TIMESTAMP, 'error', COALESCE((SELECT error_count FROM data_freshness WHERE symbol = ?), 0) + 1)
+            `);
+            updateErrorStmt.run(symbol.toUpperCase(), symbol.toUpperCase());
+        } catch (dbError) {
+            console.log(`⚠️ Failed to update error count for ${symbol}: ${dbError.message}`);
+        }
+        
+        throw new Error(`Failed to fetch data for ${symbol}: ${error.message}`);
+    }
+}
+
+// Function to attempt bulk download from Stooq
+async function attemptBulkDownload() {
+    console.log('🚀 Attempting bulk download from Stooq...');
+    
+    try {
+        // Try to access Stooq bulk data directory
+        const bulkUrls = [
+            'https://stooq.com/db/h/',
+            'https://stooq.com/db/h/daily/us/',
+            'https://stooq.com/db/h/daily/us/nasdaq_stocks/',
+            'https://stooq.com/db/h/daily/us/nyse_stocks/'
+        ];
+        
+        for (const url of bulkUrls) {
+            try {
+                console.log(`📡 Trying bulk URL: ${url}`);
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; StockAnalysis/1.0)',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                    },
+                    timeout: 10000
+                });
+                
+                if (response.ok) {
+                    const content = await response.text();
+                    console.log(`✅ Bulk URL accessible: ${url}`);
+                    console.log(`📊 Content length: ${content.length} characters`);
+                    
+                    // Check if it contains downloadable data
+                    if (content.includes('.zip') || content.includes('.csv') || content.includes('download')) {
+                        console.log('🎯 Found downloadable content in bulk URL!');
+                        return { url, accessible: true, hasDownloads: true };
+                    } else {
+                        console.log('⚠️ URL accessible but no obvious downloads found');
+                        return { url, accessible: true, hasDownloads: false };
+                    }
+                }
+            } catch (error) {
+                console.log(`❌ Bulk URL ${url} failed: ${error.message}`);
+            }
+        }
+        
+        console.log('❌ No bulk URLs accessible');
+        return { accessible: false, hasDownloads: false };
+        
+    } catch (error) {
+        console.error('❌ Error attempting bulk download:', error);
+        return { accessible: false, hasDownloads: false };
+    }
+}
+
+// Function to download bulk data for a specific exchange
+async function downloadBulkExchangeData(exchange, symbols) {
+    console.log(`📦 Attempting bulk download for ${exchange} (${symbols.length} symbols)...`);
+    
+    try {
+        // Try to download a compressed file if available
+        const bulkUrl = `https://stooq.com/db/h/daily/us/${exchange.toLowerCase()}_stocks.zip`;
+        
+        console.log(`📡 Trying bulk download: ${bulkUrl}`);
+        
+        const response = await fetch(bulkUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; StockAnalysis/1.0)',
+                'Accept': 'application/zip,application/octet-stream'
+            },
+            timeout: 30000
+        });
+        
+        if (response.ok) {
+            console.log(`✅ Bulk download successful for ${exchange}!`);
+            // Here you would process the ZIP file
+            return { success: true, method: 'bulk_zip' };
+        } else {
+            console.log(`⚠️ Bulk download failed for ${exchange}, status: ${response.status}`);
+            return { success: false, method: 'bulk_zip' };
+        }
+        
+    } catch (error) {
+        console.log(`❌ Bulk download error for ${exchange}: ${error.message}`);
+        return { success: false, method: 'bulk_zip', error: error.message };
+    }
+}
+
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 Stock Analysis Backend running on port ${PORT}`);
     console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);
     console.log(`🔍 Health check: http://localhost:${PORT}/api/health`);
+    
+    // Start populating US symbols after a short delay (unless skipped)
+    if (!SKIP_POPULATION) {
+        console.log('🚀 Starting US symbols population in 2 seconds...');
+        console.log('💡 To skip population, use: SKIP_POPULATION=true npm start or --skip-population flag');
+        
+        setTimeout(() => {
+            populateAllUSSymbols().catch(error => {
+                console.error('❌ Error during US symbols population:', error);
+            });
+        }, 2000);
+    } else {
+        console.log('⏭️ Skipping US symbols population (SKIP_POPULATION=true or --skip-population flag)');
+    }
 });
 
 module.exports = app;

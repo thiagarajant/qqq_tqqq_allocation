@@ -25,10 +25,7 @@ export default function Navbar() {
   const [searchResults, setSearchResults] = useState<NASDAQSymbol[]>([])
 
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: Home },
-    { name: 'Cycles', href: '/cycles', icon: BarChart3 },
-    { name: 'Simulation', href: '/simulation', icon: Calculator }
-    // { name: 'Admin', href: '/admin', icon: Database } // Temporarily commented out
+    { name: 'Dashboard', href: '/', icon: Home }
   ]
 
   // Sync input value with selected ETF

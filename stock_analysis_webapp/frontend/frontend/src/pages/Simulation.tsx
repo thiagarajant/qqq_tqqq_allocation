@@ -214,8 +214,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
     console.log(`🚀 Starting simulation for ${selectedETFPair.baseETF}`);
 
     try {
-      // For initial simulation, use the same logic as smart strategy but with same symbol
-      // This ensures consistency and accuracy in calculations
+      // For initial simulation, use the selected symbols to show baseline performance
       console.log(`📡 Running initial simulation using /api/simulate for ${selectedETFPair.baseETF}`);
       const response = await fetch('/api/simulate', {
         method: 'POST',
@@ -229,7 +228,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
           threshold: 5, // Default threshold for initial simulation
           monthlyInvestment: useMonthlyInvestment ? monthlyInvestment : 0,
           baseETF: selectedETFPair.baseETF,
-          leveragedETF: selectedETFPair.baseETF // Use same symbol for baseline performance
+          leveragedETF: secondarySymbol || 'TQQQ' // Use selected secondary symbol or fallback to TQQQ
         }),
       });
 
