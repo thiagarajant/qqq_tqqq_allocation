@@ -1,7 +1,7 @@
 # Database files (too large for GitHub)
-stock_analysis_webapp/database/*.db
-stock_analysis_webapp/database/*.db-*
-stock_analysis_webapp/database/market_data*
+database/*.db
+database/*.db-*
+database/market_data*
 *.db
 *.db-*
 
