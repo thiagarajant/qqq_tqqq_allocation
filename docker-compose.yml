@@ -33,8 +33,8 @@ services:
       target: build
     container_name: stock-market-analysis-dev
     ports:
-      - "3001:3000"
       - "5173:5173"
+      - "3001:3000"
     volumes:
       # Mount source code for hot reloading
       - .:/app
@@ -45,7 +45,7 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
-    command: npm run dev
+    command: cd frontend && npm run dev
     profiles:
       - dev
     networks:
