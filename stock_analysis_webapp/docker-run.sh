@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# Stock Analysis Web Application Docker Management Script
+# Stock Market Analysis Web Application Docker Management Script
+# This script provides easy management of the Stock Market Analysis web application using Docker
 
-set -e
+set -e  # Exit on any error
 
 # Colors for output
 RED='\033[0;31m'
@@ -48,7 +49,7 @@ check_database() {
 # Function to build the Docker image
 build_image() {
     print_status "Building Docker image..."
-    docker build -t stock-analysis-webapp .
+    docker build -t stock-market-analysis-webapp .
     print_success "Docker image built successfully!"
 }
 

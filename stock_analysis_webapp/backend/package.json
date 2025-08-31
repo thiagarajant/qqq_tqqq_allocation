@@ -1,7 +1,7 @@
 {
-  "name": "stock-analysis-backend",
+  "name": "stock-market-analysis-backend",
   "version": "1.0.0",
-  "description": "Backend API for stock analysis web application",
+  "description": "Backend API for Stock Market Analysis web application",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -18,7 +18,7 @@
   "devDependencies": {
     "nodemon": "^3.0.2"
   },
-  "keywords": ["stock", "analysis", "api", "express"],
+  "keywords": ["stock", "market", "analysis", "api", "express", "portfolio", "simulation"],
   "author": "",
   "license": "MIT"
 }

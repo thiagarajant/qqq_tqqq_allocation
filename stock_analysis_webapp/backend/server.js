@@ -2798,8 +2798,8 @@ async function fetchSECCompanyTickers() {
                 
                 const response = await fetch(url, {
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; StockAnalysis/1.0)',
-                        'Accept': 'application/json'
+                        'User-Agent': 'Mozilla/5.0 (compatible; StockMarketAnalysis/1.0)',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
                     },
                     timeout: 10000
                 });
@@ -3195,7 +3195,7 @@ async function attemptBulkDownload() {
                 
                 const response = await fetch(url, {
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; StockAnalysis/1.0)',
+                        'User-Agent': 'Mozilla/5.0 (compatible; StockMarketAnalysis/1.0)',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
                     },
                     timeout: 10000
@@ -3241,7 +3241,7 @@ async function downloadBulkExchangeData(exchange, symbols) {
         
         const response = await fetch(bulkUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; StockAnalysis/1.0)',
+                'User-Agent': 'Mozilla/5.0 (compatible; StockMarketAnalysis/1.0)',
                 'Accept': 'application/zip,application/octet-stream'
             },
             timeout: 30000
@@ -3264,7 +3264,7 @@ async function downloadBulkExchangeData(exchange, symbols) {
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`🚀 Stock Analysis Backend running on port ${PORT}`);
+    console.log(`🚀 Stock Market Analysis Backend running on port ${PORT}`);
     console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);
     console.log(`🔍 Health check: http://localhost:${PORT}/api/health`);
     

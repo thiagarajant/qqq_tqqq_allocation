@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for Stock Analysis Web Application
+# Multi-stage Dockerfile for Stock Market Analysis Web Application
 FROM node:18-alpine AS base
 
 # Set working directory

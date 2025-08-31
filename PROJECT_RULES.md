@@ -1,9 +1,9 @@
-# Project Rules for Stock QQQ TQQQ Data Project
+# Project Rules for Stock Market Analysis Project
 
 ## General Instructions to Remember
 
 1. **Save General Instructions**: When user provides general instructions, save them as rules/memory for this project only
-2. **Data Requirements**: Focus on daily open and close prices for QQQ and TQQQ for last 25 years
+2. **Data Requirements**: Focus on daily open and close prices for stocks and ETFs for comprehensive market analysis
 3. **Output Format**: Provide data in CSV format with Date, Open, Close columns
 4. **Error Handling**: Handle API issues gracefully and provide alternative solutions
 5. **Documentation**: Always provide clear documentation and usage instructions
@@ -18,7 +18,7 @@
 - TQQQ current price should be around $92, not the fictional $22.90 in sample data
 
 ## Project Goals
-- Fetch 25 years of daily open/close prices for QQQ and TQQQ
+- Fetch comprehensive daily open/close prices for stocks and ETFs
 - Save data to CSV files
 - Generate comparison charts
 - Provide summary statistics

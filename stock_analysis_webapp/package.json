@@ -1,7 +1,7 @@
 {
-  "name": "stock-analysis-webapp",
+  "name": "stock-market-analysis",
   "version": "1.0.0",
-  "description": "A high-performance web application for analyzing QQQ and TQQQ drawdown cycles",
+  "description": "A comprehensive web application for stock market analysis, portfolio simulation, and drawdown cycle detection",
   "main": "backend/server.js",
   "scripts": {
     "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
@@ -17,9 +17,10 @@
   },
   "keywords": [
     "stock",
+    "market",
     "analysis",
-    "qqq",
-    "tqqq",
+    "portfolio",
+    "simulation",
     "drawdown",
     "cycles",
     "react",

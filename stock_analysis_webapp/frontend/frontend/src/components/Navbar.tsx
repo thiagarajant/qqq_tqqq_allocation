@@ -172,7 +172,7 @@ export default function Navbar() {
               <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
                 <TrendingUp className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-bold text-gray-900">Stock Analysis</span>
+              <span className="text-xl font-bold text-gray-900">Stock Market Analysis</span>
             </Link>
           </div>
 
@@ -323,7 +323,12 @@ export default function Navbar() {
               )
             })}
             
-
+            {/* Mobile threshold input */}
+            <div className="pt-4 border-t border-gray-200">
+              <label htmlFor="mobile-threshold" className="block text-sm font-medium text-gray-700 mb-2">
+                Threshold (%)
+              </label>
+              <div className="relative">
                 <input
                   id="mobile-threshold"
                   type="text"

@@ -177,7 +177,7 @@ export default function Dashboard() {
       <div className="w-full max-w-none px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Stock Analysis Dashboard</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Stock Market Analysis Dashboard</h1>
           <p className="text-gray-600">Analyze stock performance, cycles, and simulate investment strategies</p>
         </div>
 

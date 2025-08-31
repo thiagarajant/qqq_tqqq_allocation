@@ -1,6 +1,6 @@
-# Docker Setup for Stock Analysis Web Application
+# Docker Setup for Stock Market Analysis Web Application
 
-This document explains how to run the Stock Analysis Web Application using Docker, making it easy to deploy in any environment.
+This document explains how to run the Stock Market Analysis Web Application using Docker, making it easy to deploy in any environment.
 
 ## Prerequisites
 

@@ -1,10 +1,11 @@
-# Stock Analysis Web Application
+# Stock Market Analysis
 
-A high-performance, responsive web application for analyzing QQQ and TQQQ drawdown cycles with a beautiful Robinhood-like UI.
+A comprehensive, high-performance web application for stock market analysis, portfolio simulation, and drawdown cycle detection with a beautiful Robinhood-like UI.
 
 ## 🚀 Features
 
-- **Real-time Analysis**: Analyze QQQ drawdown cycles with customizable thresholds (2%, 5%, 10%, 15%, 20%)
+- **Real-time Analysis**: Analyze stock drawdown cycles with customizable thresholds (2%, 5%, 10%, 15%, 20%)
+- **Portfolio Simulation**: Simulate investment strategies with different symbols and time periods
 - **Beautiful UI**: Modern, responsive design inspired by Robinhood
 - **Interactive Charts**: Visualize market cycles with Recharts
 - **Mobile First**: Optimized for both desktop and mobile devices
