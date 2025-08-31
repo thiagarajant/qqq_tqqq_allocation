@@ -75,7 +75,7 @@ When you ask Cursor to perform a task:
 
 ### **Automated Scripts**
 
-We've created several npm scripts to help maintain documentation:
+We've created several Docker-based scripts to help maintain documentation:
 
 ```bash
 # Update version information in all README files
@@ -91,7 +91,7 @@ npm run docs:validate
 npm run docs:summary
 
 # Run all documentation maintenance tasks
-npm run docs:maintain
+npm run docker:docs:maintain
 ```
 
 ### **Manual Script Usage**
@@ -113,6 +113,28 @@ You can also run the script directly:
 
 # Run everything
 ./scripts/update-docs.sh --all
+```
+
+### **Docker-Based Development Commands**
+
+```bash
+# Start development environment
+npm run docker:dev
+
+# Check service status
+npm run docker:status
+
+# View logs
+npm run docker:logs
+
+# Run quality checks in containers
+npm run docker:quality:check
+
+# Run tests in containers
+npm run docker:test
+
+# Health check
+npm run docker:health
 ```
 
 ### **What Each Script Does**

@@ -4,48 +4,39 @@
   "description": "A comprehensive web application for stock market analysis, portfolio simulation, and drawdown cycle detection",
   "main": "backend/server.js",
   "scripts": {
-    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
-    "backend": "cd backend && npm run dev",
-    "frontend": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build",
-    "start": "cd backend && npm start",
-    "install-all": "npm install && cd backend && npm install && cd frontend && npm install",
+    "docker:dev": "docker-compose --profile dev up -d",
+    "docker:prod": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:restart": "docker-compose restart",
+    "docker:rebuild": "docker-compose up --build -d",
+    "docker:status": "docker-compose ps",
+    "docker:health": "docker-compose exec stock-market-analysis-webapp curl -f http://localhost:3000/api/health",
     
     "docs:update": "./scripts/update-docs.sh --update-versions",
     "docs:check": "./scripts/update-docs.sh --check-consistency",
     "docs:validate": "./scripts/update-docs.sh --validate-structure",
     "docs:summary": "./scripts/update-docs.sh --generate-summary",
-    "docs:maintain": "./scripts/update-docs.sh --all",
+    "docker:docs:maintain": "./scripts/update-docs.sh --all",
     
-    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
-    "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
-    "lint:frontend": "eslint frontend/src --ext .ts,.tsx",
-    "lint:backend": "eslint backend --ext .ts,.js",
+    "docker:lint": "docker-compose exec stock-market-analysis-webapp npm run lint",
+    "docker:lint:fix": "docker-compose exec stock-market-analysis-webapp npm run lint:fix",
+    "docker:format": "docker-compose exec stock-market-analysis-webapp npm run format",
+    "docker:format:check": "docker-compose exec stock-market-analysis-webapp npm run format:check",
     
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "docker:test": "docker-compose exec stock-market-analysis-webapp npm run test",
+    "docker:test:coverage": "docker-compose exec stock-market-analysis-webapp npm run test:coverage",
+    "docker:test:ci": "docker-compose exec stock-market-analysis-webapp npm run test:ci",
     
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:frontend": "jest --projects=frontend",
-    "test:backend": "jest --projects=backend",
-    "test:ci": "jest --ci --coverage --watchAll=false",
+    "docker:type-check": "docker-compose exec stock-market-analysis-webapp npm run type-check",
+    "docker:security:audit": "docker-compose exec stock-market-analysis-webapp npm audit",
     
-    "type-check": "tsc --noEmit",
-    "type-check:frontend": "tsc --noEmit --project frontend/tsconfig.json",
-    "type-check:backend": "tsc --noEmit --project backend/tsconfig.json",
+    "docker:quality:check": "docker-compose exec stock-market-analysis-webapp npm run quality:check",
+    "docker:quality:fix": "docker-compose exec stock-market-analysis-webapp npm run quality:fix",
     
-    "security:audit": "npm audit && npm audit fix",
-    "security:check": "npm audit --audit-level=moderate",
+    "docker:setup": "docker-compose --profile dev up --build -d && echo 'Waiting for services to start...' && sleep 10 && docker-compose ps",
     
-    "quality:check": "npm run lint && npm run format:check && npm run type-check && npm run test:ci",
-    "quality:fix": "npm run lint:fix && npm run format && npm run security:audit",
-    
-    "pre-commit": "npm run quality:check",
-    "prepare": "husky install",
-    
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Use Docker commands: npm run docker:test\" && exit 1"
   },
   "dependencies": {
     "express": "^4.18.2",

@@ -1,25 +1,34 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-# Run quality checks before commit
-echo "🔍 Running pre-commit quality checks..."
+# Run quality checks before commit using Docker
+echo "🔍 Running pre-commit quality checks in Docker containers..."
 
-# Run linting
+# Check if Docker services are running
+echo "🐳 Checking Docker services..."
+if ! docker-compose ps | grep -q "Up"; then
+  echo "❌ Docker services are not running. Starting development environment..."
+  docker-compose --profile dev up -d
+  echo "⏳ Waiting for services to start..."
+  sleep 15
+fi
+
+# Run linting in containers
 echo "📝 Checking code style..."
-npm run lint:frontend
-npm run lint:backend
+docker-compose exec -T stock-market-analysis-webapp npm run lint:frontend
+docker-compose exec -T stock-market-analysis-webapp npm run lint:backend
 
 # Run formatting check
 echo "🎨 Checking code formatting..."
-npm run format:check
+docker-compose exec -T stock-market-analysis-webapp npm run format:check
 
 # Run type checking
 echo "🔍 Checking TypeScript types..."
-npm run type-check:frontend
-npm run type-check:backend
+docker-compose exec -T stock-market-analysis-webapp npm run type-check:frontend
+docker-compose exec -T stock-market-analysis-webapp npm run type-check:backend
 
 # Run tests
 echo "🧪 Running tests..."
-npm run test:ci
+docker-compose exec -T stock-market-analysis-webapp npm run test:ci
 
 echo "✅ All quality checks passed! Proceeding with commit..."

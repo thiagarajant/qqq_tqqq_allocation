@@ -324,55 +324,64 @@ app.get('/admin/users', (req, res) => {
 
 ### **Daily Development Process**
 
-#### **1. Code Quality Checks**
+#### **1. Start Docker Environment**
 ```bash
-# Run all quality checks
-npm run quality:check
+# Start development environment
+npm run docker:dev
+
+# Check service status
+npm run docker:status
+
+# Verify all services are healthy
+npm run docker:health
+```
+
+#### **2. Code Quality Checks**
+```bash
+# Run all quality checks in containers
+npm run docker:quality:check
 
 # Fix issues automatically
-npm run quality:fix
+npm run docker:quality:fix
 
 # Check specific areas
-npm run lint:frontend
-npm run lint:backend
-npm run format:check
-npm run type-check
+npm run docker:lint
+npm run docker:format:check
+npm run docker:type-check
 ```
 
-#### **2. Testing**
+#### **3. Testing**
 ```bash
-# Run all tests
-npm run test
-
-# Watch mode for development
-npm run test:watch
+# Run all tests in containers
+npm run docker:test
 
 # Coverage report
-npm run test:coverage
+npm run docker:test:coverage
 
-# Specific test suites
-npm run test:frontend
-npm run test:backend
+# CI testing
+npm run docker:test:ci
+
+# Note: Watch mode is handled by container volume mounts and hot reload
 ```
 
-#### **3. Security**
+#### **4. Security**
 ```bash
-# Security audit
-npm run security:audit
+# Security audit in containers
+npm run docker:security:audit
 
-# Check for vulnerabilities
-npm run security:check
+# Note: Security checks run automatically in CI/CD pipeline
 ```
 
 ### **Pre-commit Workflow**
 
 1. **Code Changes**: Make your changes
-2. **Quality Checks**: Run `npm run quality:check`
-3. **Fix Issues**: Address any linting, formatting, or type errors
-4. **Tests**: Ensure all tests pass
-5. **Commit**: Git commit triggers pre-commit hooks
-6. **Quality Gates**: Hooks validate code quality
-7. **Success**: Commit proceeds if all checks pass
+2. **Docker Environment**: Ensure containers are running (`npm run docker:status`)
+3. **Quality Checks**: Run `npm run docker:quality:check`
+4. **Fix Issues**: Address any linting, formatting, or type errors
+5. **Tests**: Ensure all tests pass in containers (`npm run docker:test:ci`)
+6. **Commit**: Git commit triggers pre-commit hooks
+7. **Quality Gates**: Hooks validate code quality in containers
+8. **Success**: Commit proceeds if all checks pass
 
 ### **Code Review Standards**
 
@@ -500,6 +509,29 @@ it('should fetch stock data', async () => {
 });
 ```
 
+## 🐳 **Docker-First Development**
+
+### **Container Management**
+- **Development Environment**: `npm run docker:dev` - Start development services
+- **Production Environment**: `npm run docker:prod` - Start production services
+- **Service Monitoring**: `npm run docker:status` - Check service health
+- **Logs**: `npm run docker:logs` - View container logs
+- **Health Checks**: `npm run docker:health` - Verify API health
+
+### **Quality Assurance in Containers**
+- **Code Quality**: `npm run docker:quality:check` - Run all quality checks
+- **Testing**: `npm run docker:test` - Run tests in containers
+- **Linting**: `npm run docker:lint` - ESLint checks in containers
+- **Formatting**: `npm run docker:format` - Prettier formatting in containers
+- **Type Checking**: `npm run docker:type-check` - TypeScript validation
+
+### **Container Best Practices**
+- **Volume Mounts**: Source code mounted for hot reload and live development
+- **Service Communication**: Proper networking between frontend, backend, and database
+- **Health Monitoring**: Regular health checks and status monitoring
+- **Resource Management**: Appropriate CPU and memory limits
+- **Security**: Non-root users, minimal base images, security scanning
+
 ## 📚 **Additional Resources**
 
 ### **Documentation**
@@ -508,6 +540,7 @@ it('should fetch stock data', async () => {
 - [Express.js Guide](https://expressjs.com/en/guide/)
 - [Jest Documentation](https://jestjs.io/docs/getting-started)
 - [ESLint Rules](https://eslint.org/docs/rules/)
+- [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
 
 ### **Tools & Extensions**
 - **VS Code Extensions**:

@@ -108,7 +108,22 @@ docker-compose up -d
 
 ## 🔧 **Development Setup**
 
-### **Local Development (Node.js Required)**
+### **Docker-First Development (Recommended)**
+```bash
+# Start development environment
+npm run docker:dev
+
+# Check service status
+npm run docker:status
+
+# View logs
+npm run docker:logs
+
+# Health check
+npm run docker:health
+```
+
+### **Alternative: Local Development (Node.js Required)**
 ```bash
 # Install dependencies
 npm run install-all
@@ -122,6 +137,27 @@ npm run backend     # Backend on port 3000
 ```
 
 ### **Available Scripts**
+
+#### **Docker Commands (Recommended)**
+```bash
+# Development
+npm run docker:dev       # Start development environment
+npm run docker:prod      # Start production environment
+npm run docker:down      # Stop all services
+npm run docker:status    # Check service health
+
+# Quality Assurance
+npm run docker:quality:check    # Run all quality checks
+npm run docker:test            # Run tests in containers
+npm run docker:lint            # Run linting in containers
+npm run docker:format          # Format code in containers
+
+# Monitoring
+npm run docker:logs            # View container logs
+npm run docker:health          # Health check API
+```
+
+#### **Local Development Commands**
 ```bash
 # Development
 npm run dev              # Start both frontend and backend

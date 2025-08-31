@@ -67,19 +67,28 @@ README.md (Main project documentation)
 6. PROJECT_RESTRUCTURING_CONTEXT.md - Project history
 ```
 
-### **Step 2: Task Analysis**
+### **Step 2: Docker-First Development**
+- **Always use Docker**: All development, testing, and quality checks run in containers
+- **Container Environment**: Ensure all tools work within Docker containers
+- **Volume Mounts**: Use source code mounting for hot reload and live development
+- **Multi-Service Testing**: Test complete system integration, not individual components
+
+### **Step 3: Task Analysis**
 - **Understand Requirements**: What needs to be accomplished?
 - **Identify Scope**: Which components are affected?
 - **Plan Documentation Updates**: Which README files need changes?
+- **Docker Impact**: Which containers and services are affected?
 
-### **Step 3: Implementation**
-- **Make Code Changes**: Implement the requested functionality
+### **Step 4: Implementation**
+- **Make Code Changes**: Implement the requested functionality within Docker containers
 - **Update Documentation**: Modify relevant README files
 - **Verify Consistency**: Ensure all documentation is aligned
+- **Container Testing**: Test changes in the containerized environment
 
-### **Step 4: Validation**
-- **Test Functionality**: Verify the changes work as expected
+### **Step 5: Validation**
+- **Test Functionality**: Verify the changes work in Docker containers
 - **Review Documentation**: Check that all updates are accurate
+- **Container Health**: Ensure all services are running and healthy
 - **Commit Changes**: Include both code and documentation updates
 
 ## 🔍 **Specific Documentation Areas**
@@ -171,28 +180,36 @@ README.md (Main project documentation)
 
 ### **For New Features**
 1. Read all README files to understand current state
-2. Implement the feature
-3. Update relevant component README files
-4. Update main README.md if it's a major feature
-5. Update PROJECT_RESTRUCTURING_CONTEXT.md with new status
+2. Implement the feature within Docker containers
+3. Test the feature in the containerized environment
+4. Update relevant component README files
+5. Update main README.md if it's a major feature
+6. Update PROJECT_RESTRUCTURING_CONTEXT.md with new status
+7. Ensure Docker services are healthy and communicating
 
 ### **For Bug Fixes**
 1. Read relevant README files to understand the issue
-2. Fix the bug
-3. Update troubleshooting sections if needed
-4. Update any configuration documentation if changed
+2. Fix the bug within Docker containers
+3. Test the fix in the containerized environment
+4. Update troubleshooting sections if needed
+5. Update any configuration documentation if changed
+6. Verify container health and service communication
 
 ### **For Refactoring**
 1. Read all README files to understand current architecture
-2. Perform the refactoring
-3. Update all affected documentation sections
-4. Ensure new structure is properly documented
+2. Perform the refactoring within Docker containers
+3. Test the refactored code in the containerized environment
+4. Update all affected documentation sections
+5. Ensure new structure is properly documented
+6. Verify container orchestration and service dependencies
 
 ### **For Configuration Changes**
 1. Read relevant README files to understand current configuration
-2. Make the configuration change
-3. Update all documentation that references the old configuration
-4. Update examples and procedures as needed
+2. Make the configuration change in Docker Compose and container configs
+3. Test the configuration in the containerized environment
+4. Update all documentation that references the old configuration
+5. Update examples and procedures as needed
+6. Ensure container environment variables and networking are properly configured
 
 ## 🎯 **Success Metrics**
 
@@ -315,13 +332,20 @@ README.md (Main project documentation)
 - **Security Scanning**: Scan images for vulnerabilities
 - **Resource Limits**: Set appropriate CPU and memory limits
 - **Health Checks**: Implement comprehensive health checks
+- **Volume Mounts**: Use source code mounting for live development
+- **Hot Reload**: Ensure frontend and backend hot reload in containers
+- **Container Orchestration**: Use docker-compose for multi-service management
+- **Development Profiles**: Separate development and production configurations
+- **Container Networking**: Proper service communication and port mapping
 
 #### **CI/CD Pipeline**
-- **Automated Testing**: Run tests on every commit
-- **Code Quality**: Use ESLint, Prettier, and TypeScript compiler checks
-- **Security Scanning**: Integrate security scanning in the pipeline
-- **Deployment Strategy**: Use blue-green or rolling deployments
-- **Monitoring**: Implement comprehensive logging and monitoring
+- **Containerized Testing**: Run all tests within Docker containers
+- **Code Quality**: Use ESLint, Prettier, and TypeScript compiler checks in containers
+- **Security Scanning**: Scan Docker images for vulnerabilities
+- **Deployment Strategy**: Use blue-green or rolling deployments with containers
+- **Monitoring**: Implement comprehensive logging and monitoring for containers
+- **Container Registry**: Use Docker registry for image versioning and deployment
+- **Infrastructure as Code**: Docker Compose for environment management
 
 ### **Code Quality Standards**
 
@@ -393,6 +417,53 @@ README.md (Main project documentation)
 
 ---
 
-**Remember**: Good documentation is not a one-time task - it's an ongoing commitment that requires attention with every change. Always README first, then implement, then update documentation.
+## 🐳 **Docker-First Development Workflow**
 
-**Expert Development**: Follow these standards to create production-ready, maintainable, and scalable applications that meet enterprise-grade requirements.
+### **Daily Development Process**
+1. **Start Development Environment**:
+   ```bash
+   docker-compose --profile dev up -d
+   ```
+
+2. **Make Code Changes**: Edit files locally, changes reflect in containers via volume mounts
+
+3. **Test in Containers**: All testing and validation happens within Docker containers
+
+4. **Quality Checks**: Run containerized quality checks and tests
+
+5. **Integration Testing**: Test complete system in containerized environment
+
+6. **Commit Changes**: Ensure all containers are healthy before committing
+
+### **Container Health Monitoring**
+- **Service Status**: Check `docker-compose ps` for all services
+- **Health Checks**: Monitor container health endpoints
+- **Logs**: Review container logs for errors and issues
+- **Networking**: Verify service communication and port mapping
+
+### **Development Commands**
+```bash
+# Start development environment
+docker-compose --profile dev up -d
+
+# View logs
+docker-compose logs -f [service-name]
+
+# Restart services
+docker-compose restart [service-name]
+
+# Rebuild containers
+docker-compose up --build -d
+
+# Stop all services
+docker-compose down
+
+# Check service health
+docker-compose ps
+```
+
+---
+
+**Remember**: Good documentation is not a one-time task - it's an ongoing commitment that requires attention with every change. Always README first, then implement in Docker containers, then update documentation.
+
+**Expert Development**: Follow these standards to create production-ready, maintainable, and scalable applications that meet enterprise-grade requirements. All development, testing, and quality checks run within Docker containers for consistency and reliability.
