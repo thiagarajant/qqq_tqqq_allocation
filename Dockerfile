@@ -10,10 +10,11 @@ COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
 
 # Install root dependencies
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # Install backend dependencies
-RUN cd backend && npm ci --only=production
+RUN cd backend && npm install --only=production
+RUN cd backend && npm rebuild sqlite3
 
 # Install frontend dependencies
 RUN cd frontend && npm install
@@ -29,8 +30,9 @@ COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
 
 # Install all dependencies (including dev dependencies for build)
-RUN npm ci
-RUN cd backend && npm ci
+RUN npm install
+RUN cd backend && npm install
+RUN cd backend && npm rebuild sqlite3
 RUN cd frontend && npm install
 
 # Copy source code
@@ -63,8 +65,9 @@ COPY --from=build --chown=nodejs:nodejs /app/package*.json ./
 COPY --from=build --chown=nodejs:nodejs /app/database ./database
 
 # Install only production dependencies
-RUN npm ci --only=production
-RUN cd backend && npm ci --only=production
+RUN npm install --only=production
+RUN cd backend && npm install --only=production
+RUN cd backend && npm rebuild sqlite3
 
 # Switch to non-root user
 USER nodejs
