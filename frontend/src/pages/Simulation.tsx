@@ -391,7 +391,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                         type="text"
                         value={selectedETFPair.baseETF}
                         onChange={(e) => {
-                          const newBase = e.target.value;
+                          const newBase = e.target.value.toUpperCase();
                           setSelectedETFPair({
                             ...selectedETFPair,
                             baseETF: newBase,
@@ -685,7 +685,7 @@ const Simulation: React.FC<SimulationProps> = ({ selectedSymbol }) => {
                           type="text"
                           value={secondarySymbol}
                           onChange={(e) => {
-                            setSecondarySymbol(e.target.value);
+                            setSecondarySymbol(e.target.value.toUpperCase());
                             setShowSecondarySuggestions(e.target.value.length > 0);
                           }}
                           onFocus={() => setShowSecondarySuggestions(secondarySymbol.length > 0)}

@@ -192,7 +192,13 @@ export default function Dashboard() {
               <input
                 type="text"
                 value={symbolSearchTerm}
-                onChange={(e) => setSymbolSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  // Enhanced input handling with validation
+                  const value = e.target.value
+                  // Only allow letters, numbers, and dots
+                  const cleanValue = value.replace(/[^A-Za-z0-9.]/g, '').toUpperCase()
+                  setSymbolSearchTerm(cleanValue)
+                }}
                 onFocus={() => setShowSymbolSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSymbolSuggestions(false), 200)}
                 onKeyPress={(e) => {
@@ -205,8 +211,9 @@ export default function Dashboard() {
                     }
                   }
                 }}
-                placeholder="Enter symbol (e.g., QQQ, AAPL)"
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter symbol (e.g., QQQ, AAPL, TSLA)"
+                maxLength={10}
+                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
               />
               
               {/* Symbol Suggestions */}
