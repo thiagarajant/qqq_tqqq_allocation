@@ -601,7 +601,7 @@ docker exec stock-market-analysis-webapp ps aux
 ```bash
 # Check network configuration
 docker network ls
-docker network inspect qqq_tqqq_allocation_stock-market-analysis-network
+docker network inspect stock_market_analysis_stock-market-analysis-network
 
 # Test network connectivity
 docker exec stock-market-analysis-webapp ping stock-market-analysis-dev

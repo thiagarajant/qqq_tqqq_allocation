@@ -2,7 +2,7 @@
 
 ## 🎯 **Project Overview**
 **Project Name**: Stock Analysis Webapp  
-**Repository**: qqq_tqqq_allocation  
+**Repository**: stock_market_analysis  
 **Current Status**: ✅ **FULLY RESTRUCTURED AND OPERATIONAL**
 
 ## 📋 **What We Accomplished**
@@ -21,7 +21,7 @@
 
 ### **3. Current Project Structure**
 ```
-qqq_tqqq_allocation/ (root)
+stock_market_analysis/ (root)
 ├── frontend/           # React app (Vite + TypeScript)
 ├── backend/            # Express.js API server
 ├── database/           # SQLite database files

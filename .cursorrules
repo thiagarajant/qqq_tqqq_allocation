@@ -1,0 +1,213 @@
+# Cursor Rules for Stock Market Analysis Project
+
+## 🎯 **Core Principles**
+
+1. **Always README First**: Before performing any task, read through ALL README.md files to understand the current project state
+2. **Documentation-Driven Development**: Every change must be reflected in appropriate README files
+3. **Consistency**: Maintain consistent formatting, structure, and information across all documentation
+4. **Completeness**: Ensure all technical details, configurations, and procedures are documented
+
+## 📚 **Required Documentation Review**
+
+### **Before Every Task**
+1. **Read main README.md** - Understand project overview, architecture, and current status
+2. **Read component READMEs** - Review frontend/README.md, backend/README.md, database/README.md
+3. **Read DOCKER_README.md** - Understand containerization and deployment setup
+4. **Read PROJECT_RESTRUCTURING_CONTEXT.md** - Know project history and current structure
+
+### **Documentation Hierarchy**
+```
+README.md (Main project documentation)
+├── frontend/README.md (Frontend component details)
+├── backend/README.md (Backend component details)
+├── database/README.md (Database schema and management)
+├── DOCKER_README.md (Containerization and DevOps)
+└── PROJECT_RESTRUCTURING_CONTEXT.md (Project history and status)
+```
+
+## 🔄 **Documentation Update Workflow**
+
+### **When Making Changes**
+1. **Identify Impact**: Determine which README files need updates
+2. **Update Content**: Modify relevant documentation sections
+3. **Verify Consistency**: Ensure information is consistent across all files
+4. **Commit Changes**: Include documentation updates in the same commit as code changes
+
+### **Update Triggers**
+- **Code Changes**: New features, bug fixes, refactoring
+- **Configuration Changes**: Environment variables, ports, dependencies
+- **Architecture Changes**: New components, services, or integrations
+- **Process Changes**: Build steps, deployment procedures, development workflows
+
+## 📝 **Documentation Standards**
+
+### **File Structure**
+- **Clear Headers**: Use consistent header hierarchy (##, ###, ####)
+- **Code Blocks**: Proper syntax highlighting and formatting
+- **Links**: Internal links between related documentation sections
+- **Examples**: Include practical examples and code snippets
+
+### **Content Requirements**
+- **Current Status**: Always reflect the actual current state
+- **Version Information**: Keep version numbers and dates updated
+- **Dependencies**: Document all package versions and requirements
+- **Configuration**: Include all necessary configuration steps
+- **Troubleshooting**: Document common issues and solutions
+
+## 🚀 **Task Execution Protocol**
+
+### **Step 1: Documentation Review**
+```bash
+# Always start by reading these files:
+1. README.md - Main project documentation
+2. frontend/README.md - Frontend component details
+3. backend/README.md - Backend component details
+4. database/README.md - Database schema and management
+5. DOCKER_README.md - Containerization setup
+6. PROJECT_RESTRUCTURING_CONTEXT.md - Project history
+```
+
+### **Step 2: Task Analysis**
+- **Understand Requirements**: What needs to be accomplished?
+- **Identify Scope**: Which components are affected?
+- **Plan Documentation Updates**: Which README files need changes?
+
+### **Step 3: Implementation**
+- **Make Code Changes**: Implement the requested functionality
+- **Update Documentation**: Modify relevant README files
+- **Verify Consistency**: Ensure all documentation is aligned
+
+### **Step 4: Validation**
+- **Test Functionality**: Verify the changes work as expected
+- **Review Documentation**: Check that all updates are accurate
+- **Commit Changes**: Include both code and documentation updates
+
+## 🔍 **Specific Documentation Areas**
+
+### **Frontend Changes**
+- **Update frontend/README.md** with:
+  - New components or pages
+  - Updated dependencies
+  - Configuration changes
+  - Build process modifications
+
+### **Backend Changes**
+- **Update backend/README.md** with:
+  - New API endpoints
+  - Database schema changes
+  - Configuration updates
+  - Performance optimizations
+
+### **Database Changes**
+- **Update database/README.md** with:
+  - Schema modifications
+  - New tables or views
+  - Migration procedures
+  - Performance improvements
+
+### **Docker/DevOps Changes**
+- **Update DOCKER_README.md** with:
+  - New services or containers
+  - Configuration changes
+  - Build process updates
+  - Deployment procedures
+
+### **Project-Wide Changes**
+- **Update main README.md** with:
+  - Architecture changes
+  - New features or capabilities
+  - Updated quick start procedures
+  - Modified project structure
+
+## 📊 **Documentation Quality Checklist**
+
+### **Before Committing**
+- [ ] All relevant README files have been updated
+- [ ] Information is consistent across all documentation
+- [ ] Examples and code snippets are current and working
+- [ ] Version numbers and dates are updated
+- [ ] Links between documentation files are working
+- [ ] Configuration steps are complete and accurate
+- [ ] Troubleshooting sections cover new issues
+
+### **Content Validation**
+- [ ] Technical details are accurate and current
+- [ ] Step-by-step procedures are complete
+- [ ] Code examples are syntax-correct and functional
+- [ ] Configuration files reflect actual project state
+- [ ] Dependencies and versions are current
+- [ ] Port numbers and URLs are correct
+
+## 🚨 **Common Documentation Pitfalls**
+
+### **Avoid These Issues**
+1. **Outdated Information**: Don't leave old configuration details
+2. **Inconsistent Naming**: Use consistent terminology across all files
+3. **Missing Examples**: Always provide practical usage examples
+4. **Broken Links**: Ensure internal documentation links work
+5. **Incomplete Procedures**: Don't leave steps incomplete
+
+### **Best Practices**
+1. **Update as You Go**: Don't wait until the end to update documentation
+2. **Test Examples**: Verify that code examples actually work
+3. **Cross-Reference**: Link related information between files
+4. **Version Control**: Include documentation updates in the same commits as code changes
+
+## 🔧 **Automated Documentation Tasks**
+
+### **Regular Maintenance**
+- **Weekly**: Review and update version numbers
+- **Monthly**: Verify all links and examples are working
+- **Quarterly**: Comprehensive review of all documentation
+- **On Release**: Update all version information and release notes
+
+### **Change Detection**
+- **Package.json Changes**: Update dependency documentation
+- **Docker Changes**: Update containerization documentation
+- **API Changes**: Update backend and API documentation
+- **UI Changes**: Update frontend and user interface documentation
+
+## 📋 **Task-Specific Rules**
+
+### **For New Features**
+1. Read all README files to understand current state
+2. Implement the feature
+3. Update relevant component README files
+4. Update main README.md if it's a major feature
+5. Update PROJECT_RESTRUCTURING_CONTEXT.md with new status
+
+### **For Bug Fixes**
+1. Read relevant README files to understand the issue
+2. Fix the bug
+3. Update troubleshooting sections if needed
+4. Update any configuration documentation if changed
+
+### **For Refactoring**
+1. Read all README files to understand current architecture
+2. Perform the refactoring
+3. Update all affected documentation sections
+4. Ensure new structure is properly documented
+
+### **For Configuration Changes**
+1. Read relevant README files to understand current configuration
+2. Make the configuration change
+3. Update all documentation that references the old configuration
+4. Update examples and procedures as needed
+
+## 🎯 **Success Metrics**
+
+### **Documentation Quality**
+- **Completeness**: All features and procedures are documented
+- **Accuracy**: Information matches actual project state
+- **Consistency**: Terminology and format are consistent across files
+- **Usability**: Documentation is easy to follow and understand
+
+### **Maintenance**
+- **Timeliness**: Documentation is updated with code changes
+- **Version Control**: Documentation changes are committed with code
+- **Review Process**: Regular documentation reviews are performed
+- **User Feedback**: Documentation addresses user needs and questions
+
+---
+
+**Remember**: Good documentation is not a one-time task - it's an ongoing commitment that requires attention with every change. Always README first, then implement, then update documentation.

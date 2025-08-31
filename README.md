@@ -50,7 +50,7 @@ This application provides sophisticated stock market analysis tools including:
 ## 📁 **Project Structure**
 
 ```
-qqq_tqqq_allocation/
+stock_market_analysis/
 ├── 📁 frontend/                 # React + TypeScript application
 │   ├── 📁 src/
 │   │   ├── 📁 components/      # Reusable UI components
@@ -89,7 +89,7 @@ qqq_tqqq_allocation/
 ### **1. Clone the Repository**
 ```bash
 git clone <repository-url>
-cd qqq_tqqq_allocation
+cd stock_market_analysis
 ```
 
 ### **2. Start with Docker (Recommended)**
