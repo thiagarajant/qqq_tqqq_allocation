@@ -1,320 +1,722 @@
-# Docker Setup for Stock Market Analysis Web Application
+# Docker & DevOps - Stock Market Analysis Containerization
 
-This document explains how to run the Stock Market Analysis Web Application using Docker, making it easy to deploy in any environment.
+## 🎯 **Overview**
 
-## Prerequisites
+This document provides comprehensive information about the Docker containerization setup for the Stock Market Analysis application. The system uses multi-stage Docker builds, Docker Compose orchestration, and optimized container configurations for both development and production environments.
 
-- Docker installed and running
-- Docker Compose installed
-- At least 2GB of available RAM
-- The `market_data.db` file in the `./database/` directory
+## 🏗️ **Architecture Overview**
 
-## Quick Start
-
-### 1. Build and Run (Production)
-
-```bash
-# Build and run the application
-./docker-run.sh run
-
-# Or use docker-compose directly
-docker-compose up -d
+### **Container Architecture**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Docker Host                              │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐    ┌─────────────────┐                │
+│  │   Frontend      │    │    Backend      │                │
+│  │   Container     │    │   Container     │                │
+│  │   Port: 5173    │    │   Port: 3000    │                │
+│  │   (Dev/Prod)    │    │   (Production)  │                │
+│  └─────────────────┘    └─────────────────┘                │
+│           │                       │                        │
+│           └───────────────────────┼────────────────────────┘
+│                                   │
+│  ┌─────────────────────────────────┼─────────────────────┐  │
+│  │         Docker Network          │                     │  │
+│  │   stock-market-analysis-network │                     │  │
+│  └─────────────────────────────────┴─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-The application will be available at: **http://localhost:3000**
+### **Service Configuration**
+- **Frontend**: React development server with hot reload
+- **Backend**: Express.js API server with SQLite database
+- **Network**: Isolated Docker network for service communication
+- **Volumes**: Persistent data storage and hot reload capabilities
 
-### 2. Development Mode
+## 🐳 **Docker Configuration Files**
 
+### **1. Dockerfile (Multi-stage Build)**
+
+#### **Build Stages Overview**
+```dockerfile
+# Multi-stage Dockerfile for Stock Market Analysis Web Application
+FROM node:18-alpine AS base      # Base image with Node.js
+FROM node:18-alpine AS build     # Build stage for frontend
+FROM node:18-alpine AS production # Production runtime
+```
+
+#### **Base Stage**
+```dockerfile
+FROM node:18-alpine AS base
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package*.json ./
+COPY backend/package*.json ./backend/
+COPY frontend/package*.json ./frontend/
+
+# Install root dependencies
+RUN npm install --only=production
+
+# Install backend dependencies
+RUN cd backend && npm install --only=production
+RUN cd backend && npm rebuild sqlite3
+
+# Install frontend dependencies
+RUN cd frontend && npm install
+```
+
+**Purpose**: Install production dependencies and prepare base environment
+**Key Features**:
+- **Alpine Linux**: Lightweight base image (~5MB)
+- **Node.js 18**: LTS version with long-term support
+- **SQLite3 Rebuild**: Ensures binary compatibility in containers
+- **Production Dependencies**: Optimized for runtime performance
+
+#### **Build Stage**
+```dockerfile
+FROM node:18-alpine AS build
+
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package*.json ./
+COPY backend/package*.json ./backend/
+COPY frontend/package*.json ./frontend/
+
+# Install all dependencies (including dev dependencies for build)
+RUN npm install
+RUN cd backend && npm install
+RUN cd backend && npm rebuild sqlite3
+RUN cd frontend && npm install
+
+# Copy source code
+COPY . .
+
+# Build frontend (ensure we're in the right directory)
+WORKDIR /app/frontend
+RUN npm run build
+```
+
+**Purpose**: Build the frontend application for production
+**Key Features**:
+- **Full Dependencies**: Includes development dependencies for build tools
+- **Source Code Copy**: Copies entire project for building
+- **Frontend Build**: Creates optimized production build with Vite
+- **Build Output**: Generates static files in `dist/` directory
+
+#### **Production Stage**
+```dockerfile
+FROM node:18-alpine AS production
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+# Copy built frontend from build stage
+COPY --from=build --chown=nodejs:nodejs /app/frontend/dist ./frontend/dist
+
+# Copy backend source and package files
+COPY --from=build --chown=nodejs:nodejs /app/backend ./backend
+COPY --from=build --chown=nodejs:nodejs /app/package*.json ./
+
+# Copy database
+COPY --from=build --chown=nodejs:nodejs /app/database ./database
+
+# Install only production dependencies
+RUN npm install --only=production
+RUN cd backend && npm install --only=production
+RUN cd backend && npm rebuild sqlite3
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+
+# Start the application
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["npm", "start"]
+```
+
+**Purpose**: Create optimized production runtime container
+**Key Features**:
+- **Security**: Non-root user execution
+- **Signal Handling**: Proper process signal management with dumb-init
+- **Health Checks**: Automated health monitoring
+- **Optimized Size**: Only production dependencies and built assets
+
+### **2. docker-compose.yml**
+
+#### **Service Definitions**
+
+##### **Production Service**
+```yaml
+stock-market-analysis-app:
+  build: .
+  image: stock-market-analysis:latest
+  container_name: stock-market-analysis-webapp
+  ports:
+    - "3000:3000"
+  volumes:
+    - ./database:/app/database
+    - ./logs:/app/logs
+  environment:
+    - NODE_ENV=production
+    - PORT=3000
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 40s
+  networks:
+    - stock-market-analysis-network
+```
+
+**Purpose**: Full-stack production application
+**Features**:
+- **Port Mapping**: Exposes backend API on port 3000
+- **Volume Mounts**: Persistent database and logs storage
+- **Health Checks**: Automated container health monitoring
+- **Restart Policy**: Automatic restart on failure
+
+##### **Development Service**
+```yaml
+stock-market-analysis-dev:
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: build
+  container_name: stock-market-analysis-dev
+  ports:
+    - "5173:5173"
+    - "3001:3000"
+  volumes:
+    - .:/app
+    - /app/node_modules
+    - /app/backend/node_modules
+    - /app/frontend/node_modules
+    - ./database:/app/database
+  environment:
+    - NODE_ENV=development
+    - PORT=3000
+  command: cd frontend && npm run dev
+  profiles:
+    - dev
+  networks:
+    - stock-market-analysis-network
+```
+
+**Purpose**: Frontend development with hot reload
+**Features**:
+- **Hot Reload**: Source code mounted for live updates
+- **Port Mapping**: Frontend dev server on 5173, backend on 3001
+- **Volume Mounts**: Source code and node_modules isolation
+- **Development Profile**: Only starts when explicitly requested
+
+#### **Network Configuration**
+```yaml
+networks:
+  stock-market-analysis-network:
+    driver: bridge
+
+volumes:
+  logs:
+```
+
+**Purpose**: Isolated network for service communication
+**Features**:
+- **Bridge Network**: Default Docker networking
+- **Service Discovery**: Automatic service name resolution
+- **Isolation**: Separate from host network
+
+### **3. .dockerignore**
+
+#### **Excluded Files**
+```dockerignore
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist
+build
+
+# Development files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Git and version control
+.git
+.gitignore
+README.md
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs
+logs
+*.log
+
+# Database files (too large for Docker context)
+database/*.db
+database/*.db-*
+```
+
+**Purpose**: Optimize Docker build context and image size
+**Benefits**:
+- **Faster Builds**: Smaller build context
+- **Smaller Images**: Exclude unnecessary files
+- **Security**: Prevent sensitive files from being included
+
+## 🚀 **Build & Deployment**
+
+### **Build Process**
+
+#### **1. Development Build**
 ```bash
-# Run in development mode with hot reloading
-./docker-run.sh dev
+# Build development image
+docker-compose --profile dev build
 
-# Or use docker-compose directly
+# Start development services
 docker-compose --profile dev up -d
-```
-
-- Backend API: **http://localhost:3001**
-- Frontend Dev Server: **http://localhost:5173**
-
-## Docker Management Commands
-
-The `docker-run.sh` script provides easy management commands:
-
-```bash
-# View all available commands
-./docker-run.sh help
-
-# Build the Docker image
-./docker-run.sh build
-
-# Start the container (if already built)
-./docker-run.sh start
-
-# Stop the container
-./docker-run.sh stop
-
-# Restart the container
-./docker-run.sh restart
 
 # View logs
-./docker-run.sh logs
-
-# Rebuild and restart
-./docker-run.sh rebuild
-
-# Show container status
-./docker-run.sh status
-
-# Clean up Docker resources
-./docker-run.sh cleanup
+docker-compose logs -f stock-market-analysis-dev
 ```
 
-## Docker Compose Commands
-
-You can also use docker-compose directly:
-
+#### **2. Production Build**
 ```bash
-# Start services
+# Build production image
+docker-compose build
+
+# Start production services
 docker-compose up -d
 
-# Start with development profile
-docker-compose --profile dev up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-
-# Rebuild and start
-docker-compose up -d --build
-
-# View running services
+# Check status
 docker-compose ps
 ```
 
-## Container Architecture
+#### **3. Multi-stage Build Optimization**
+```bash
+# Build specific stage
+docker build --target build -t stock-analysis:build .
 
-### Production Container
-- **Base Image**: Node.js 18 Alpine (lightweight)
-- **Port**: 3000
-- **User**: Non-root (nodejs:1001)
-- **Health Check**: Automatic health monitoring
-- **Restart Policy**: Unless stopped
+# Build production stage
+docker build --target production -t stock-analysis:prod .
 
-### Development Container
-- **Features**: Hot reloading, source code mounting
-- **Ports**: 3001 (backend), 5173 (frontend)
-- **Volumes**: Source code mounted for live updates
+# View image layers
+docker history stock-analysis:prod
+```
 
-## Volume Mounts
+### **Image Optimization**
 
-- **Database**: `./database:/app/database:ro` (read-only)
-- **Logs**: `./logs:/app/logs` (optional)
-- **Source Code**: Mounted in development mode for hot reloading
+#### **Layer Caching Strategy**
+```dockerfile
+# Optimize dependency installation
+COPY package*.json ./
+RUN npm install --only=production
 
-## Environment Variables
+# Copy source code after dependencies
+COPY . .
+```
 
-- `NODE_ENV`: production/development
-- `PORT`: Application port (default: 3000)
+**Benefits**:
+- **Faster Rebuilds**: Dependencies cached separately from source
+- **Efficient Updates**: Only rebuild when dependencies change
+- **CI/CD Optimization**: Leverage Docker layer caching
 
-## Health Monitoring
+#### **Multi-stage Benefits**
+- **Smaller Production Images**: Exclude build tools and dev dependencies
+- **Security**: Production images contain only runtime requirements
+- **Efficiency**: Separate build and runtime environments
 
-The container includes automatic health checks:
-- **Interval**: Every 30 seconds
-- **Timeout**: 3 seconds
-- **Retries**: 3 attempts
-- **Start Period**: 5 seconds grace period
+## 🔧 **Development Workflow**
 
-## Security Features
+### **Local Development Setup**
 
-- **Non-root User**: Application runs as `nodejs` user (UID 1001)
-- **Signal Handling**: Uses `dumb-init` for proper process management
-- **Read-only Database**: Database mounted as read-only
-- **Alpine Linux**: Minimal attack surface
+#### **1. Start Development Environment**
+```bash
+# Start frontend development container
+docker-compose --profile dev up -d
 
-## Troubleshooting
+# Access frontend
+open http://localhost:5173
 
-### Container Won't Start
+# Access backend API
+curl http://localhost:3001/api/health
+```
 
-1. Check if Docker is running:
-   ```bash
-   docker info
-   ```
+#### **2. Development Features**
+- **Hot Reload**: Frontend automatically updates on code changes
+- **Volume Mounts**: Source code changes reflected immediately
+- **Port Mapping**: Frontend on 5173, backend on 3001
+- **Environment Variables**: Development-specific configuration
 
-2. Verify database exists:
-   ```bash
-   ls -la ./database/market_data.db
-   ```
+#### **3. Debugging**
+```bash
+# View container logs
+docker-compose logs -f stock-market-analysis-dev
 
-3. Check container logs:
-   ```bash
-   ./docker-run.sh logs
-   ```
+# Execute commands in container
+docker-compose exec stock-market-analysis-dev sh
 
-### Port Already in Use
+# Check container status
+docker-compose ps
+```
 
-If port 3000 is already in use, modify the port mapping in `docker-compose.yml`:
+### **Production Deployment**
 
+#### **1. Build and Deploy**
+```bash
+# Build production image
+docker-compose build
+
+# Start production services
+docker-compose up -d
+
+# Verify deployment
+docker-compose ps
+curl http://localhost:3000/api/health
+```
+
+#### **2. Production Features**
+- **Health Checks**: Automated health monitoring
+- **Restart Policy**: Automatic recovery from failures
+- **Resource Limits**: Controlled resource consumption
+- **Security**: Non-root user execution
+
+## 📊 **Monitoring & Health Checks**
+
+### **Health Check Configuration**
+
+#### **Backend Health Check**
 ```yaml
+healthcheck:
+  test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+```
+
+**Purpose**: Monitor backend API availability
+**Parameters**:
+- **interval**: Check frequency (30 seconds)
+- **timeout**: Maximum response time (10 seconds)
+- **retries**: Consecutive failures before marking unhealthy (3)
+- **start_period**: Initial grace period (40 seconds)
+
+#### **Health Check Endpoint**
+```javascript
+// Backend health check implementation
+app.get('/api/health', (req, res) => {
+  // Check database connectivity
+  db.get("SELECT 1", (err) => {
+    if (err) {
+      res.status(500).json({
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        database: 'disconnected',
+        error: err.message
+      });
+    } else {
+      res.json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        database: 'connected'
+      });
+    }
+  });
+});
+```
+
+### **Monitoring Commands**
+
+#### **Container Health Status**
+```bash
+# Check container health
+docker-compose ps
+
+# View health check logs
+docker inspect stock-market-analysis-webapp | grep -A 10 Health
+
+# Manual health check
+curl http://localhost:3000/api/health
+```
+
+#### **Resource Monitoring**
+```bash
+# Container resource usage
+docker stats stock-market-analysis-webapp
+
+# Container logs
+docker-compose logs -f stock-market-analysis-webapp
+
+# Container inspection
+docker inspect stock-market-analysis-webapp
+```
+
+## 🔒 **Security Features**
+
+### **Container Security**
+
+#### **Non-root User Execution**
+```dockerfile
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
+
+# Switch to non-root user
+USER nodejs
+```
+
+**Benefits**:
+- **Reduced Attack Surface**: Non-privileged execution
+- **File System Security**: Limited access to host resources
+- **Process Isolation**: Containerized process execution
+
+#### **Signal Handling**
+```dockerfile
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Use dumb-init as entrypoint
+ENTRYPOINT ["dumb-init", "--"]
+```
+
+**Purpose**: Proper process signal management
+**Benefits**:
+- **Graceful Shutdown**: Handle SIGTERM and SIGINT properly
+- **Process Cleanup**: Ensure child processes are terminated
+- **Container Orchestration**: Work properly with Docker and Kubernetes
+
+### **Network Security**
+
+#### **Isolated Network**
+```yaml
+networks:
+  stock-market-analysis-network:
+    driver: bridge
+```
+
+**Benefits**:
+- **Service Isolation**: Separate from host network
+- **Controlled Communication**: Only defined services can communicate
+- **Port Management**: Explicit port exposure control
+
+## 🚨 **Troubleshooting**
+
+### **Common Issues**
+
+#### **1. Port Conflicts**
+```bash
+# Check port usage
+lsof -i :3000
+lsof -i :5173
+
+# Change ports in docker-compose.yml
 ports:
-  - "3001:3000"  # Use port 3001 instead
+  - "3001:3000"  # Use different host port
 ```
 
-### Build Issues
-
-1. Clean up and rebuild:
-   ```bash
-   ./docker-run.sh cleanup
-   ./docker-run.sh rebuild
-   ```
-
-2. Check Docker disk space:
-   ```bash
-   docker system df
-   ```
-
-### Performance Issues
-
-1. Increase Docker resources in Docker Desktop settings
-2. Ensure adequate RAM allocation (minimum 2GB)
-3. Use SSD storage for better I/O performance
-
-## Production Deployment
-
-### Single Host Deployment
-
+#### **2. Build Failures**
 ```bash
-# Build and run
-./docker-run.sh run
+# Clear Docker cache
+docker system prune -a
 
-# Set up reverse proxy (nginx example)
-# Configure nginx to proxy requests to localhost:3000
+# Rebuild without cache
+docker-compose build --no-cache
+
+# Check build context
+docker build --target build -t test .
 ```
 
-### Multi-Host Deployment
-
-1. Build and push the image to a registry:
-   ```bash
-   docker build -t your-registry/stock-analysis-webapp:latest .
-   docker push your-registry/stock-analysis-webapp:latest
-   ```
-
-2. Update `docker-compose.yml` to use the registry image:
-   ```yaml
-   image: your-registry/stock-analysis-webapp:latest
-   ```
-
-3. Deploy on target hosts using docker-compose
-
-### Environment-Specific Configuration
-
-Create environment-specific compose files:
-
+#### **3. Container Startup Issues**
 ```bash
-# Production
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Check container logs
+docker-compose logs stock-market-analysis-webapp
 
-# Staging
-docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-```
-
-## Monitoring and Logging
-
-### View Real-time Logs
-
-```bash
-# Follow all logs
-docker-compose logs -f
-
-# Follow specific service
-docker-compose logs -f stock-analysis-app
-
-# View last N lines
-docker-compose logs --tail=100
-```
-
-### Container Health
-
-```bash
 # Check container status
 docker-compose ps
 
-# View health check results
-docker inspect stock-analysis-webapp | grep -A 10 Health
+# Restart services
+docker-compose restart
 ```
 
-### Resource Usage
-
+#### **4. SQLite3 Binary Issues**
 ```bash
-# View container resource usage
-docker stats stock-analysis-webapp
+# Rebuild SQLite3 in container
+docker-compose exec stock-market-analysis-webapp sh
+cd backend && npm rebuild sqlite3
 
-# View disk usage
-docker system df
+# Or rebuild entire container
+docker-compose up --build -d
 ```
 
-## Backup and Recovery
+### **Debug Commands**
 
-### Database Backup
-
+#### **Container Inspection**
 ```bash
-# Create backup
-docker exec stock-analysis-webapp sqlite3 /app/database/market_data.db ".backup /app/database/backup_$(date +%Y%m%d_%H%M%S).db"
+# Inspect container configuration
+docker inspect stock-market-analysis-webapp
 
-# Copy backup from container
-docker cp stock-analysis-webapp:/app/database/backup_*.db ./
+# Check container filesystem
+docker exec -it stock-market-analysis-webapp sh
+
+# View container processes
+docker exec stock-market-analysis-webapp ps aux
 ```
 
-### Container Backup
-
+#### **Network Debugging**
 ```bash
-# Save container image
-docker save stock-analysis-webapp > stock-analysis-webapp.tar
+# Check network configuration
+docker network ls
+docker network inspect qqq_tqqq_allocation_stock-market-analysis-network
 
-# Load container image
-docker load < stock-analysis-webapp.tar
+# Test network connectivity
+docker exec stock-market-analysis-webapp ping stock-market-analysis-dev
 ```
 
-## Updates and Maintenance
+## 📈 **Performance Optimization**
 
-### Update Application
+### **Build Optimization**
 
-1. Pull latest code
-2. Rebuild and restart:
-   ```bash
-   ./docker-run.sh rebuild
-   ```
+#### **1. Layer Caching**
+```dockerfile
+# Optimize dependency installation order
+COPY package*.json ./
+RUN npm install --only=production
 
-### Update Dependencies
+# Copy source code after dependencies
+COPY . .
+```
 
-1. Update package.json files
-2. Rebuild container:
-   ```bash
-   ./docker-run.sh rebuild
-   ```
+#### **2. Multi-stage Builds**
+```dockerfile
+# Build stage with all dependencies
+FROM node:18-alpine AS build
+RUN npm install
 
-### Clean Up Old Images
+# Production stage with minimal dependencies
+FROM node:18-alpine AS production
+COPY --from=build /app/dist ./dist
+```
 
+### **Runtime Optimization**
+
+#### **1. Resource Limits**
+```yaml
+# Add resource constraints
+deploy:
+  resources:
+    limits:
+      memory: 512M
+      cpus: '0.5'
+    reservations:
+      memory: 256M
+      cpus: '0.25'
+```
+
+#### **2. Volume Optimization**
+```yaml
+# Optimize volume mounts
+volumes:
+  - .:/app:delegated  # Use delegated mount for better performance
+  - /app/node_modules  # Exclude node_modules from host mount
+```
+
+## 🔄 **CI/CD Integration**
+
+### **GitHub Actions Example**
+
+#### **Build and Test Workflow**
+```yaml
+name: Build and Test
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Build Docker image
+      run: docker-compose build
+    
+    - name: Run tests
+      run: docker-compose run --rm stock-market-analysis-app npm test
+    
+    - name: Push to registry
+      if: github.ref == 'refs/heads/main'
+      run: |
+        docker tag stock-market-analysis:latest ${{ secrets.REGISTRY }}/stock-market-analysis:latest
+        docker push ${{ secrets.REGISTRY }}/stock-market-analysis:latest
+```
+
+### **Deployment Pipeline**
+
+#### **Production Deployment**
 ```bash
-# Remove unused images
-docker image prune -f
+# Pull latest image
+docker pull stock-market-analysis:latest
 
-# Remove all unused resources
-docker system prune -a
+# Stop existing containers
+docker-compose down
+
+# Start with new image
+docker-compose up -d
+
+# Verify deployment
+docker-compose ps
+curl http://localhost:3000/api/health
 ```
 
-## Support
+## 📚 **Additional Resources**
 
-If you encounter issues:
+### **Docker Documentation**
+- **Docker Official Docs**: https://docs.docker.com/
+- **Docker Compose**: https://docs.docker.com/compose/
+- **Multi-stage Builds**: https://docs.docker.com/develop/dev-best-practices/multistage-builds/
 
-1. Check the logs: `./docker-run.sh logs`
-2. Verify Docker is running: `docker info`
-3. Check container status: `./docker-run.sh status`
-4. Review this documentation for troubleshooting steps
+### **Best Practices**
+- **Docker Security**: https://docs.docker.com/engine/security/
+- **Container Optimization**: https://docs.docker.com/develop/dev-best-practices/
+- **Production Checklist**: https://docs.docker.com/config/containers/multi-service_container/
 
-## Next Steps
+---
 
-- [Main README](../README.md) - Project overview and features
-- [PROJECT_RULES](../PROJECT_RULES.md) - Development guidelines
-- [API Documentation](../README.md#api-endpoints) - Backend API reference
+**Docker Status**: ✅ **FULLY OPERATIONAL**  
+**Last Updated**: January 2025  
+**Version**: 1.0.0
