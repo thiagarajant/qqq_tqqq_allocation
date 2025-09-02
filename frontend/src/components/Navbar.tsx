@@ -25,7 +25,8 @@ export default function Navbar() {
   const [searchResults, setSearchResults] = useState<NASDAQSymbol[]>([])
 
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: Home }
+    { name: 'Dashboard', href: '/', icon: Home },
+    { name: 'Admin', href: '/admin', icon: Database }
   ]
 
   // Sync input value with selected ETF
@@ -117,30 +118,9 @@ export default function Navbar() {
         }
       }
       
-      // If no data in database, try to fetch from Stooq
-      const fetchResponse = await fetch('/api/fetch-single-etf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: upperSymbol })
-      })
-      
-      if (fetchResponse.ok) {
-        const fetchData = await fetchResponse.json()
-        if (fetchData.status === 'success') {
-          // Successfully fetched new data
-          setSymbolStatus('valid')
-          // Add a small delay to show the success state
-          setTimeout(() => {
-            setSymbolStatus('valid')
-          }, 500)
-        } else {
-          // Symbol not found in Stooq
-          setSymbolStatus('invalid')
-          console.log(`Symbol "${upperSymbol}" not found in Stooq`)
-        }
-      } else {
-        setSymbolStatus('invalid')
-      }
+      // No external API calls - data must be uploaded via CSV/TXT files
+      console.log(`Symbol "${upperSymbol}" not found in database - please upload data via Admin page`)
+      setSymbolStatus('invalid')
     } catch (error) {
       console.error('Error checking symbol:', error)
       setSymbolStatus('invalid')

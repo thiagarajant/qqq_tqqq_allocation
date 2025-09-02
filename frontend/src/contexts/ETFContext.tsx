@@ -92,33 +92,26 @@ export const ETFProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsLoading(true)
       setError(null)
 
-      const response = await fetch('/api/fetch-single-etf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: symbol.toUpperCase() })
-      })
-
+      // Check if symbol exists in database
+      const response = await fetch(`/api/symbols/${symbol.toUpperCase()}`)
       if (response.ok) {
         const data = await response.json()
         if (data.status === 'success') {
-          // Add a small delay to show the success state
-          setTimeout(() => {
-            setIsLoading(false)
-          }, 500)
+          setIsLoading(false)
           return true
         } else {
-          setError(`Failed to fetch data for ${symbol}: ${data.message || 'Unknown error'}`)
+          setError(`Symbol ${symbol} not found in database - please upload data via Admin page`)
           setIsLoading(false)
           return false
         }
       } else {
-        setError(`Failed to fetch data for ${symbol}`)
+        setError(`Symbol ${symbol} not found in database - please upload data via Admin page`)
         setIsLoading(false)
         return false
       }
     } catch (error) {
-      console.error('Error fetching stock data:', error)
-      setError(`Error fetching data for ${symbol}`)
+      console.error('Error checking symbol:', error)
+      setError(`Error checking symbol ${symbol}`)
       setIsLoading(false)
       return false
     }

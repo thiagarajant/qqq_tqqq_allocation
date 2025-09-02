@@ -12,7 +12,7 @@ The backend is a high-performance Express.js API server designed to provide comp
 - **Database**: SQLite3 with optimized indexes and views
 - **Security**: Helmet.js, CORS, compression middleware
 - **API**: RESTful endpoints with JSON responses
-- **Data Sources**: Stooq.com, market data APIs
+- **Data Sources**: Local database only - no external API calls
 
 ### **Project Structure**
 ```
@@ -209,8 +209,8 @@ The server automatically populates the symbols table with:
 - **Consumer Companies**: COST, PEP, BKNG, ORLY
 
 #### **Data Population Strategy**
-1. **Bulk Download**: Attempts Stooq.com bulk downloads first
-2. **Individual Fetching**: Falls back to individual symbol API calls
+1. **File Upload**: Processes uploaded CSV/TXT files via Admin interface
+2. **Data Processing**: Validates and processes uploaded CSV/TXT data
 3. **Error Handling**: Tracks failed attempts and retries
 4. **Data Validation**: Ensures data quality and consistency
 
@@ -287,6 +287,79 @@ POST /api/analyze
 ```
 
 **Purpose**: Generate custom analysis for specific parameters
+
+#### **5. Admin Endpoints**
+
+##### **Database Statistics**
+```http
+GET /api/admin/database-stats
+```
+
+**Response**:
+```json
+{
+  "status": "success",
+  "totalSymbols": 150,
+  "totalPriceRecords": 250000,
+  "lastUpdated": "2025-01-31T10:30:00Z",
+  "databaseSize": "45.2 MB"
+}
+```
+
+##### **Delete Database**
+```http
+DELETE /api/admin/delete-database
+```
+
+**Purpose**: Clear all database data (symbols, prices, freshness)
+
+##### **Populate Database**
+```http
+POST /api/admin/populate-database
+```
+
+**Request Body**:
+```json
+{
+  "folderPath": "/Users/thiags/Downloads/data 2/daily",
+  "convertToUppercase": true,
+  "preventDuplicates": true
+}
+```
+
+**Features**:
+- **Automatic Symbol Conversion**: Converts all symbols to uppercase
+- **Duplicate Prevention**: Skips existing symbols to prevent duplicates
+- **CSV/TXT Support**: Processes both CSV and TXT files
+- **Data Validation**: Validates required columns and data integrity
+- **Error Handling**: Comprehensive error reporting and logging
+
+##### **Upload and Populate Database**
+```http
+POST /api/admin/upload-and-populate
+```
+
+**Request Body** (multipart/form-data):
+```
+files: [CSV/TXT files from folder]
+folderName: [optional folder name]
+convertToUppercase: true
+preventDuplicates: true
+```
+
+**Features**:
+- **Local Database Only**: No external API calls - all data must be uploaded locally
+- **Direct Folder Upload**: Upload entire folder with CSV/TXT files from frontend
+- **Automatic File Detection**: Automatically finds and processes CSV/TXT files recursively
+- **File Compression**: Supports compressed archives (ZIP) for efficient transfer
+- **Large Dataset Support**: Handles up to 50,000 files with batch processing
+- **Parallel Processing**: Processes files in parallel batches for optimal performance
+- **Automatic Symbol Conversion**: Converts all symbols to uppercase
+- **Duplicate Prevention**: Skips existing symbols to prevent duplicates
+- **Data Validation**: Validates required columns and data integrity
+- **Error Handling**: Comprehensive error reporting and logging
+- **Automatic Cleanup**: Removes uploaded files after processing
+- **Progress Tracking**: Detailed processing information and symbol list
 
 ### **API Response Format**
 
@@ -531,5 +604,5 @@ npm run lint       # Run linting (when implemented)
 ---
 
 **Backend Status**: ✅ **FULLY OPERATIONAL**  
-**Last Updated**: January 2025  
-**Version**: 1.0.0
+**Last Updated**: August 2025  
+**Version**: 1.5.0

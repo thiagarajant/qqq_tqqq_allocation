@@ -10,7 +10,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://stock-market-analysis-webapp:3000',
+        target: 'http://host.docker.internal:3000',
         changeOrigin: true,
         secure: false,
       },

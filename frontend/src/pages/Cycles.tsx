@@ -73,23 +73,8 @@ export default function Cycles({ selectedSymbol }: CyclesProps) {
         console.log(`⚠️ Chart data request failed: ${response.status}`)
       }
       
-      // If no data in database, fetch fresh data from Stooq
-      console.log(`🔄 Fetching fresh price data for ${selectedETF} from Stooq...`)
-      const stooqResponse = await fetch(`/api/fetch-historical-data/${selectedETF}`)
-      if (stooqResponse.ok) {
-        const stooqData = await stooqResponse.json()
-        console.log(`📊 Stooq response:`, stooqData)
-        
-        if (stooqData.status === 'success' && stooqData.data && stooqData.data.length > 0) {
-          const latestPrice = stooqData.data[stooqData.data.length - 1].close
-          console.log(`✅ Using latest price from Stooq: $${latestPrice}`)
-          setCurrentPrice(latestPrice)
-        } else {
-          console.error(`❌ Failed to get price data for ${selectedETF}:`, stooqData)
-        }
-      } else {
-        console.error(`❌ Stooq API request failed for ${selectedETF}:`, stooqResponse.status)
-      }
+      // No external API calls - data must be uploaded via CSV/TXT files
+      console.log(`❌ No price data available for ${selectedETF} - please upload data via Admin page`)
       
       // If we still don't have a price, try to get it from the cycles data as a last resort
       if (!currentPrice && cycles && cycles.length > 0) {

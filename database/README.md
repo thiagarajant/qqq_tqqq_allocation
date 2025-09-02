@@ -249,8 +249,7 @@ console.log('💡 To skip population, use: SKIP_POPULATION=true npm start');
 ### **Historical Data Management**
 
 #### **Data Sources**
-- **Primary**: Stooq.com bulk downloads
-- **Fallback**: Individual symbol API calls
+- **Primary**: Uploaded CSV/TXT files via Admin interface
 - **Coverage**: NASDAQ stocks + Major ETFs
 - **Frequency**: Daily updates during market hours
 
@@ -556,6 +555,6 @@ CREATE INDEX idx_historical_prices_symbol_date ON historical_prices(symbol, date
 ---
 
 **Database Status**: ✅ **FULLY OPERATIONAL**  
-**Last Updated**: January 2025  
-**Version**: 1.0.0  
-**Size**: 4.5GB+ (growing with data)
+**Last Updated**: August 2025  
+**Version**: 1.5.0  
+**Size**: Variable (supports dynamic data management)

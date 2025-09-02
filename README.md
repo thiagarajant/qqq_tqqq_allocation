@@ -5,11 +5,11 @@ A comprehensive, high-performance web application for stock market analysis, por
 ## 🚀 **Project Overview**
 
 This application provides sophisticated stock market analysis tools including:
-- **Real-time Market Analysis**: Analyze stock drawdown cycles with customizable thresholds (2%, 5%, 10%, 15%, 20%)
+- **Local Data Analysis**: Analyze stock drawdown cycles with customizable thresholds (2%, 5%, 10%, 15%, 20%) using local database
 - **Portfolio Simulation**: Simulate investment strategies with different symbols and time periods
 - **Interactive Charts**: Visualize market cycles with advanced charting capabilities
 - **ETF Focus**: Specialized analysis for QQQ, TQQQ, and other major ETFs
-- **Historical Data**: Comprehensive historical price data for NASDAQ stocks and ETFs
+- **Local Data Management**: Upload and manage CSV/TXT files through the Admin interface - all data comes from uploaded files
 
 ## 🏗️ **Architecture & Tech Stack**
 
@@ -39,6 +39,7 @@ This application provides sophisticated stock market analysis tools including:
 - **Database**: SQLite3 with optimized indexes
 - **Security**: Helmet.js, CORS, compression
 - **API**: RESTful endpoints with JSON responses
+- **Data Source**: Local database only - all data from uploaded CSV/TXT files
 
 #### **DevOps & Infrastructure**
 - **Containerization**: Docker + Docker Compose
@@ -183,6 +184,12 @@ npm run install-all      # Install all dependencies
 - `GET /api/chart-data/:threshold` - Get chart data for visualization
 - `POST /api/analyze` - Generate new analysis for custom threshold
 
+### **Admin Endpoints**
+- `GET /api/admin/database-stats` - Get database statistics and health
+- `DELETE /api/admin/delete-database` - Clear all database data
+- `POST /api/admin/populate-database` - Populate database from folder with CSV files
+- `POST /api/admin/upload-and-populate` - Upload folder with CSV files directly and populate database
+
 ### **Example API Usage**
 ```javascript
 // Health check
@@ -205,6 +212,7 @@ const cyclesData = await cycles.json()
 2. **Analysis** - Detailed stock analysis and metrics
 3. **Cycles** - Drawdown cycle visualization and analysis
 4. **Simulation** - Portfolio simulation and backtesting
+5. **Admin** - Database administration and data management
 
 ### **UI/UX Features**
 - **Responsive Design**: Mobile-first approach with Tailwind CSS
@@ -231,8 +239,7 @@ const cyclesData = await cycles.json()
 - **Optimized indexes** for fast symbol and date queries
 
 ### **Data Sources**
-- **Primary**: Stooq.com bulk data downloads
-- **Fallback**: Individual symbol API calls
+- **Primary**: Uploaded CSV/TXT files via Admin interface
 - **Coverage**: NASDAQ stocks + Major ETFs
 
 ## 🐳 **Docker Configuration**
@@ -365,6 +372,6 @@ For questions or issues:
 
 **Built with ❤️ for stock market analysis enthusiasts**
 
-**Last Updated**: January 2025  
+**Last Updated**: August 2025  
 **Status**: ✅ **FULLY OPERATIONAL**  
-**Version**: 1.0.0
+**Version**: 1.5.0

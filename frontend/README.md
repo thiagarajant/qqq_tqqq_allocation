@@ -124,6 +124,22 @@ docker-compose --profile dev up -d
      - Risk analysis
    - **Charts**: Portfolio performance charts
 
+5. **Admin.tsx** (Database Administration)
+   - **Features**:
+     - Database statistics and health monitoring
+     - Delete database functionality with confirmation
+     - Direct folder upload from computer to populate database
+     - Populate database from folder with CSV files
+     - Automatic CSV/TXT file detection and recursive search
+     - Automatic file compression for efficient transfer
+     - Support for large datasets (50,000+ files)
+     - Batch processing for optimal performance
+     - Automatic symbol uppercase conversion
+     - Duplicate entry prevention
+     - Action history and logging
+     - **Local Data Only**: No external API calls - all data uploaded locally
+   - **Data Management**: Folder upload, validation, compression, and processing
+
 ### **Design System**
 
 #### **Colors**
@@ -390,5 +406,5 @@ __tests__/
 ---
 
 **Frontend Status**: ✅ **FULLY OPERATIONAL**  
-**Last Updated**: January 2025  
-**Version**: 1.0.0
+**Last Updated**: August 2025  
+**Version**: 1.5.0

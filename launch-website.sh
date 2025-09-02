@@ -73,6 +73,62 @@ cleanup() {
     print_success "Cleanup completed"
 }
 
+# Function to clean Docker cache (optional deep cleanup)
+cleanup_cache() {
+    print_status "Performing deep cleanup (Docker cache)..."
+    
+    # Remove unused images
+    docker image prune -f 2>/dev/null || true
+    
+    # Remove unused volumes
+    docker volume prune -f 2>/dev/null || true
+    
+    # Remove build cache
+    docker builder prune -f 2>/dev/null || true
+    
+    print_success "Deep cleanup completed"
+}
+
+# Function to rebuild services
+rebuild_services() {
+    print_status "Rebuilding services with latest code changes..."
+    
+    # Rebuild both services in parallel for faster execution
+    print_status "Rebuilding backend and frontend services in parallel..."
+    docker-compose build stock-market-analysis-app stock-market-analysis-dev &
+    
+    # Wait for both rebuilds to complete
+    wait
+    
+    print_success "Services rebuilt successfully"
+}
+
+# Function to wait for service health
+wait_for_service() {
+    local url=$1
+    local service_name=$2
+    local max_attempts=30
+    local attempt=1
+    
+    print_status "Waiting for $service_name to be ready..."
+    
+    while [ $attempt -le $max_attempts ]; do
+        if curl -f "$url" > /dev/null 2>&1; then
+            print_success "$service_name is healthy and running"
+            return 0
+        fi
+        
+        if [ $attempt -eq $max_attempts ]; then
+            print_warning "$service_name health check failed after $max_attempts attempts, but continuing..."
+            return 1
+        fi
+        
+        print_status "Attempt $attempt/$max_attempts: $service_name not ready yet, waiting..."
+        sleep 2
+        ((attempt++))
+    done
+}
+
 # Function to start services
 start_services() {
     print_status "Starting services..."
@@ -81,24 +137,15 @@ start_services() {
     print_status "Starting backend service..."
     docker-compose up -d stock-market-analysis-app
     
-    # Wait for backend to be ready
-    print_status "Waiting for backend to be ready..."
-    sleep 10
-    
-    # Check backend health
-    if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
-        print_success "Backend is healthy and running on http://localhost:3000/"
-    else
-        print_warning "Backend health check failed, but continuing..."
-    fi
+    # Wait for backend to be ready with health check
+    wait_for_service "http://localhost:3000/api/health" "Backend"
     
     # Start the frontend (development) service
     print_status "Starting frontend development service..."
     docker-compose --profile dev up -d stock-market-analysis-dev
     
-    # Wait for frontend to be ready
-    print_status "Waiting for frontend to be ready..."
-    sleep 15
+    # Wait for frontend to be ready with health check
+    wait_for_service "http://localhost:5173/" "Frontend"
     
     print_success "All services started"
 }
@@ -160,14 +207,18 @@ show_usage() {
     echo "Options:"
     echo "  -h, --help     Show this help message"
     echo "  -c, --clean    Clean up containers and networks before starting"
+    echo "  -d, --deep     Deep cleanup (includes Docker cache)"
+    echo "  -r, --rebuild  Rebuild services with latest code changes"
     echo "  -l, --logs     Show logs after starting services"
     echo "  -o, --open     Open website in browser after starting"
     echo "  -s, --status   Show service status after starting"
-    echo "  -a, --all      Clean, start, show status, and open browser"
+    echo "  -a, --all      Clean, rebuild, start, show status, and open browser"
     echo ""
     echo "Examples:"
     echo "  $0              # Basic launch"
     echo "  $0 -c          # Clean and launch"
+    echo "  $0 -d          # Deep cleanup and launch"
+    echo "  $0 -r          # Rebuild and launch"
     echo "  $0 -a          # Full launch with all features"
     echo "  $0 -l          # Launch and show logs"
 }
@@ -175,6 +226,8 @@ show_usage() {
 # Main execution
 main() {
     local clean=false
+    local deep_clean=false
+    local rebuild=false
     local show_logs_flag=false
     local open_browser=false
     local show_status=false
@@ -188,6 +241,14 @@ main() {
                 ;;
             -c|--clean)
                 clean=true
+                shift
+                ;;
+            -d|--deep)
+                deep_clean=true
+                shift
+                ;;
+            -r|--rebuild)
+                rebuild=true
                 shift
                 ;;
             -l|--logs)
@@ -204,6 +265,7 @@ main() {
                 ;;
             -a|--all)
                 clean=true
+                rebuild=true
                 show_status=true
                 open_browser=true
                 shift
@@ -229,8 +291,18 @@ main() {
         cleanup
     fi
     
+    # Deep clean if requested
+    if [ "$deep_clean" = true ]; then
+        cleanup_cache
+    fi
+    
     # Stop existing services
     stop_services
+    
+    # Rebuild services if requested
+    if [ "$rebuild" = true ]; then
+        rebuild_services
+    fi
     
     # Start services
     start_services
@@ -261,8 +333,10 @@ main() {
     echo "  • Check status: docker-compose ps"
     echo "  • Stop services: docker-compose down"
     echo "  • Restart: $0 -c"
+    echo "  • Deep clean: $0 -d"
+    echo "  • Rebuild & restart: $0 -r"
     echo ""
-    echo "💡 Tip: Use '$0 -a' for full launch with browser opening!"
+    echo "💡 Tip: Use '$0 -a' for full launch with rebuild and browser opening!"
 }
 
 # Run main function with all arguments

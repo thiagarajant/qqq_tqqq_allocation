@@ -4,15 +4,228 @@ const helmet = require('helmet');
 const compression = require('compression');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const multer = require('multer');
+const fs = require('fs');
+const AdmZip = require('adm-zip');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// CSV Processing Function - Simplified version to avoid database locks
+// Helper function to clean symbol name
+function cleanSymbolName(symbol) {
+    // Remove .US suffix if present
+    return symbol.replace(/\.US$/i, '');
+}
+
+async function processCSVFile(filePath, convertToUppercase = true, preventDuplicates = true, originalFilename = null) {
+    return new Promise((resolve, reject) => {
+        try {
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            
+            // Extract symbol from original filename if provided, otherwise from filePath
+            let symbol = originalFilename ? 
+                path.basename(originalFilename, path.extname(originalFilename)) :
+                path.basename(filePath, path.extname(filePath));
+            
+            // Clean symbol name (remove .US suffix)
+            symbol = cleanSymbolName(symbol);
+            
+            // Convert to uppercase if requested
+            if (convertToUppercase) {
+                symbol = symbol.toUpperCase();
+            }
+            
+            // Insert symbol into symbols table first (if not duplicate)
+            db.run(`
+                INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `, [symbol, symbol, 'Unknown', 'Unknown', 'NASDAQ', 1], (err) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                
+                // Check if symbol was actually inserted (for duplicate detection)
+                db.get('SELECT symbol FROM symbols WHERE symbol = ?', [symbol], (err, row) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    
+                    if (row && preventDuplicates) {
+                        // Check if this is a new insertion by checking if we have historical data
+                        db.get('SELECT COUNT(*) as count FROM historical_prices WHERE symbol = ?', [symbol], (err, result) => {
+                            if (err) {
+                                reject(err);
+                                return;
+                            }
+                            
+                            if (result.count > 0) {
+                                console.log(`Skipping duplicate symbol: ${symbol} (already has data)`);
+                                resolve({ symbolsAdded: 0, recordsAdded: 0 });
+                                return;
+                            }
+                            
+                            // Symbol exists but no data, so process it
+                            processFileContentSimple(fileContent, symbol, resolve, reject);
+                        });
+                    } else {
+                        // Continue processing
+                        processFileContentSimple(fileContent, symbol, resolve, reject);
+                    }
+                });
+            });
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+function processFileContentSimple(fileContent, symbol, resolve, reject) {
+    try {
+        // Parse CSV content
+        const lines = fileContent.trim().split('\n');
+        const headers = lines[0].split(',');
+        
+        // Find column indices
+        const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
+        const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
+        const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
+        const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
+        const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
+        const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
+        
+        if (dateIndex === -1 || closeIndex === -1) {
+            reject(new Error('Missing required columns (date, close)'));
+            return;
+        }
+        
+        // Process data rows
+        const dataRows = lines.slice(1).filter(line => line.trim() && !line.includes('N/A'));
+        
+        if (dataRows.length === 0) {
+            reject(new Error('No valid data rows found'));
+            return;
+        }
+        
+        // Prepare all valid data rows for batch insert
+        const validRows = [];
+        for (const line of dataRows) {
+            const values = line.split(',');
+            
+            if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
+                const date = values[dateIndex];
+                const open = parseFloat(values[openIndex]) || null;
+                const high = parseFloat(values[highIndex]) || null;
+                const low = parseFloat(values[lowIndex]) || null;
+                const close = parseFloat(values[closeIndex]) || null;
+                const volume = parseInt(values[volumeIndex]) || null;
+                
+                if (date && close && !isNaN(close)) {
+                    validRows.push([symbol, date, open, high, low, close, volume]);
+                }
+            }
+        }
+        
+        if (validRows.length === 0) {
+            // No valid data, just update freshness and resolve
+            db.run(`
+                INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+                VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
+            `, [symbol], (err) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve({ symbolsAdded: 1, recordsAdded: 0 });
+                }
+            });
+            return;
+        }
+        
+        // Use prepared statement for better performance
+        const insertStmt = db.prepare(`
+            INSERT OR IGNORE INTO historical_prices (symbol, date, open, high, low, close, volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        
+        let recordsInserted = 0;
+        
+        // Insert all rows in batch
+        for (const row of validRows) {
+            insertStmt.run(row, (err) => {
+                if (err) {
+                    insertStmt.finalize();
+                    reject(err);
+                    return;
+                }
+                recordsInserted++;
+            });
+        }
+        
+        // Finalize statement and update freshness
+        insertStmt.finalize((err) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            
+            // Update data freshness
+            db.run(`
+                INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+                VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
+            `, [symbol], (err) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve({ symbolsAdded: 1, recordsAdded: recordsInserted });
+                }
+            });
+        });
+        
+    } catch (error) {
+        reject(error);
+    }
+}
+
+// File upload configuration
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Preserve original filename and path structure
+    const relativePath = file.originalname;
+    cb(null, relativePath);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  fileFilter: function (req, file, cb) {
+    // Accept CSV, TXT, and ZIP files
+    if (file.mimetype === 'text/csv' || 
+        file.mimetype === 'application/zip' ||
+        file.originalname.toLowerCase().endsWith('.csv') ||
+        file.originalname.toLowerCase().endsWith('.txt') ||
+        file.originalname.toLowerCase().endsWith('.zip')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV, TXT, and ZIP files are allowed'), false);
+    }
+  }
+});
 
 // Middleware
 app.use(helmet());
 app.use(cors());
 app.use(compression());
-app.use(express.json());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Database connection
 const dbPath = path.join(__dirname, '../database/market_data.db');
@@ -23,6 +236,18 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.error('Error opening database:', err.message);
   } else {
     console.log('Connected to SQLite database');
+    
+    // Optimize database for concurrent writes
+    db.serialize(() => {
+      db.run('PRAGMA journal_mode = WAL'); // Write-Ahead Logging for better concurrency
+      db.run('PRAGMA synchronous = NORMAL'); // Faster writes with reasonable safety
+      db.run('PRAGMA cache_size = 10000'); // Larger cache for better performance
+      db.run('PRAGMA temp_store = MEMORY'); // Use memory for temp tables
+      db.run('PRAGMA mmap_size = 268435456'); // 256MB memory mapping
+      db.run('PRAGMA auto_vacuum = INCREMENTAL'); // Incremental vacuum for better performance
+      db.run('PRAGMA incremental_vacuum = 1000'); // Vacuum 1000 pages at a time
+      console.log('Database optimized for concurrent operations');
+    });
     
     // Create symbols table if it doesn't exist
     const createSymbolsTable = `
@@ -55,90 +280,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
         } else {
           console.log('Symbols table ready');
           
-          // Always insert initial symbols data
-          console.log('Populating symbols table with initial data...');
-              
-              const insertSymbols = `
-                INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active) VALUES
-                ('QQQ', 'Invesco QQQ Trust', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('TQQQ', 'ProShares UltraPro QQQ', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('SQQQ', 'ProShares UltraPro Short QQQ', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('SPY', 'SPDR S&P 500 ETF Trust', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('VTI', 'Vanguard Total Stock Market ETF', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('VOO', 'Vanguard S&P 500 ETF', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('ARKK', 'ARK Innovation ETF', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('IWM', 'iShares Russell 2000 ETF', 'ETF', 'ETF', 'NASDAQ', 1),
-                ('NVDA', 'NVIDIA Corporation', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('MSFT', 'Microsoft Corporation', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('AAPL', 'Apple Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('GOOG', 'Alphabet Inc. (Class C)', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('GOOGL', 'Alphabet Inc. (Class A)', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('AMZN', 'Amazon.com Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('META', 'Meta Platforms Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('AVGO', 'Broadcom Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('TSLA', 'Tesla Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('NFLX', 'Netflix Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
-                ('COST', 'Costco Wholesale Corporation', 'Consumer Staples', 'Large Cap', 'NASDAQ', 1),
-                ('PLTR', 'Palantir Technologies Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('ASML', 'ASML Holding N.V.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('AMD', 'Advanced Micro Devices Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('TMUS', 'T-Mobile US Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
-                ('CSCO', 'Cisco Systems Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('AZN', 'AstraZeneca PLC', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
-                ('LIN', 'Linde plc', 'Materials', 'Large Cap', 'NASDAQ', 1),
-                ('PEP', 'PepsiCo Inc.', 'Consumer Staples', 'Large Cap', 'NASDAQ', 1),
-                ('INTU', 'Intuit Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('SHOP', 'Shopify Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('TXN', 'Texas Instruments Incorporated', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('BKNG', 'Booking Holdings Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('ISRG', 'Intuitive Surgical Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
-                ('QCOM', 'QUALCOMM Incorporated', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('PDD', 'PDD Holdings Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('AMGN', 'Amgen Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
-                ('ADBE', 'Adobe Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('APP', 'AppLovin Corporation', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('ARM', 'Arm Holdings plc', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('GILD', 'Gilead Sciences Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
-                ('HON', 'Honeywell International Inc.', 'Industrials', 'Large Cap', 'NASDAQ', 1),
-                ('MU', 'Micron Technology Inc.', 'Technology', 'Large Cap', 'NASDAQ', 1),
-                ('SE', 'Sea Limited', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('F', 'Ford Motor Company', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('GM', 'General Motors Company', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('JPM', 'JPMorgan Chase & Co.', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
-                ('BAC', 'Bank of America Corporation', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
-                ('WFC', 'Wells Fargo & Company', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
-                ('GS', 'Goldman Sachs Group Inc.', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
-                ('MS', 'Morgan Stanley', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
-                ('V', 'Visa Inc.', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
-                ('MA', 'Mastercard Incorporated', 'Financial Services', 'Large Cap', 'NASDAQ', 1),
-                ('JNJ', 'Johnson & Johnson', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
-                ('PFE', 'Pfizer Inc.', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
-                ('UNH', 'UnitedHealth Group Incorporated', 'Healthcare', 'Large Cap', 'NASDAQ', 1),
-                ('WMT', 'Walmart Inc.', 'Consumer Staples', 'Large Cap', 'NASDAQ', 1),
-                ('HD', 'The Home Depot Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('MCD', 'McDonald''s Corporation', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('SBUX', 'Starbucks Corporation', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('NKE', 'NIKE Inc.', 'Consumer Discretionary', 'Large Cap', 'NASDAQ', 1),
-                ('CAT', 'Caterpillar Inc.', 'Industrials', 'Large Cap', 'NASDAQ', 1),
-                ('DE', 'Deere & Company', 'Industrials', 'Large Cap', 'NASDAQ', 1),
-                ('BA', 'Boeing Company', 'Industrials', 'Large Cap', 'NASDAQ', 1),
-                ('GE', 'General Electric Company', 'Industrials', 'Large Cap', 'NASDAQ', 1),
-                ('DIS', 'The Walt Disney Company', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
-                ('CMCSA', 'Comcast Corporation', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
-                ('VZ', 'Verizon Communications Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1),
-                ('T', 'AT&T Inc.', 'Communication Services', 'Large Cap', 'NASDAQ', 1)
-              `;
-              
-              db.run('BEGIN TRANSACTION');
-              db.run(insertSymbols, (err) => {
-                if (err) {
-                  console.error('Error inserting initial symbols:', err.message);
-                  db.run('ROLLBACK');
-                } else {
-                  console.log('Initial symbols data inserted successfully');
-                  db.run('COMMIT');
-                }
-              });
+          // Database is ready for data upload - no initial dummy data
+          console.log('Symbols table ready - waiting for data upload');
         }
       });
       
@@ -197,7 +340,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
         CREATE TABLE IF NOT EXISTS data_freshness (
           symbol TEXT PRIMARY KEY,
           last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
-          data_source TEXT DEFAULT 'stooq',
+          data_source TEXT DEFAULT 'uploaded',
           status TEXT DEFAULT 'active',
           error_count INTEGER DEFAULT 0,
           last_error TEXT,
@@ -409,7 +552,47 @@ app.get('/api/available-single-etfs', (req, res) => {
     });
 });
 
-// Fetch historical data for any ETF/stock symbol using Stooq
+// Fetch single ETF data from local database
+app.post('/api/fetch-single-etf', async (req, res) => {
+    const { symbol } = req.body;
+    
+    if (!symbol) {
+        return res.status(400).json({ error: 'Symbol is required' });
+    }
+    
+    const upperSymbol = symbol.toUpperCase();
+    console.log(`Fetching single ETF data for ${upperSymbol} from local database...`);
+    
+    try {
+        // Fetch data from local database
+        const historicalData = await fetchLocalData(upperSymbol);
+        
+        if (!historicalData || historicalData.length === 0) {
+            return res.status(404).json({ 
+                error: `No data found for symbol ${upperSymbol} in local database. Please upload data first using the Admin page.` 
+            });
+        }
+        
+        res.json({
+            message: `Successfully retrieved data for ${upperSymbol} from local database`,
+            symbol: upperSymbol,
+            dataPoints: historicalData.length,
+            dateRange: {
+                start: historicalData[0]?.date,
+                end: historicalData[historicalData.length - 1]?.date
+            },
+            status: 'success',
+            source: 'local_database'
+        });
+    } catch (error) {
+        console.error(`Error fetching data for ${upperSymbol}:`, error);
+        res.status(500).json({ 
+            error: `Failed to fetch data for ${upperSymbol}: ${error.message}` 
+        });
+    }
+});
+
+// Fetch historical data from local database only
 app.post('/api/fetch-historical-data', async (req, res) => {
     const { symbol, startDate, endDate } = req.body;
     
@@ -418,34 +601,28 @@ app.post('/api/fetch-historical-data', async (req, res) => {
     }
     
     const upperSymbol = symbol.toUpperCase();
-    console.log(`Fetching historical data for ${upperSymbol} from Stooq...`);
+    console.log(`Fetching historical data for ${upperSymbol} from local database...`);
     
     try {
-        // Fetch data from Stooq
-        const historicalData = await fetchStooqData(upperSymbol);
+        // Fetch data from local database
+        const historicalData = await fetchLocalData(upperSymbol);
         
         if (!historicalData || historicalData.length === 0) {
             return res.status(404).json({ 
-                error: `No data found for symbol ${upperSymbol}. Please check if the symbol is valid.` 
+                error: `No data found for symbol ${upperSymbol} in local database. Please upload data first using the Admin page.` 
             });
         }
         
-        // Create table for the new symbol
-        await createETFTable(upperSymbol);
-        
-        // Save data to database
-        const insertedRows = await saveHistoricalData(upperSymbol, historicalData);
-        
         res.json({
-            message: `Successfully fetched and stored historical data for ${upperSymbol}`,
+            message: `Successfully retrieved historical data for ${upperSymbol} from local database`,
             symbol: upperSymbol,
-            dataPoints: insertedRows,
+            dataPoints: historicalData.length,
             dateRange: {
-                start: historicalData[historicalData.length - 1]?.date,
-                end: historicalData[0]?.date
+                start: historicalData[0]?.date,
+                end: historicalData[historicalData.length - 1]?.date
             },
             status: 'success',
-            source: 'Stooq'
+            source: 'local_database'
         });
     } catch (error) {
         console.error(`Error fetching historical data for ${upperSymbol}:`, error);
@@ -455,56 +632,49 @@ app.post('/api/fetch-historical-data', async (req, res) => {
     }
 });
 
-// Helper function to fetch data from Stooq with smart strategy
-async function fetchStooqData(symbol) {
-    const https = require('https');
+// Helper function to fetch data from local database only
+async function fetchLocalData(symbol) {
+    console.log(`🔍 Fetching ${symbol} data from local database...`);
     
-    // Determine if symbol is likely an ETF or stock based on common patterns
-    const isLikelyETF = isETFSymbol(symbol);
-    
-    let urls;
-    if (isLikelyETF) {
-        // For ETFs: try without suffix first, then with .US
-        urls = [
-            `https://stooq.com/q/d/l/?s=${symbol}&i=d`,           // Try without suffix FIRST (ETFs)
-            `https://stooq.com/q/d/l/?s=${symbol}.US&i=d`,        // Try with .US suffix as fallback
-            `https://stooq.com/q/d/l/?s=${symbol}&i=d&f=d,o,h,l,c,v`, // Try with explicit format
-        ];
-        console.log(`🔍 ${symbol} appears to be an ETF - trying without suffix first`);
-    } else {
-        // For stocks: try with .US suffix first, then without
-        urls = [
-            `https://stooq.com/q/d/l/?s=${symbol}.US&i=d`,        // Try with .US suffix FIRST (US stocks)
-            `https://stooq.com/q/d/l/?s=${symbol}&i=d`,           // Try without suffix as fallback
-            `https://stooq.com/q/d/l/?s=${symbol}.us&i=d`,        // Try with .us suffix (lowercase fallback)
-            `https://stooq.com/q/d/l/?s=${symbol}&i=d&f=d,o,h,l,c,v`, // Try with explicit format as last resort
-        ];
-        console.log(`🔍 ${symbol} appears to be a stock - trying with .US suffix first`);
-    }
-    
-    // Try each URL until one works
-    for (let i = 0; i < urls.length; i++) {
-        const url = urls[i];
-        console.log(`Trying Stooq URL ${i + 1}/${urls.length}: ${url}`);
-        
-        try {
-            const data = await fetchFromURL(url);
-            const parsedData = parseStooqCSV(data);
-            console.log(`Success with URL ${i + 1}: Got ${parsedData.length} data points`);
-            return parsedData;
-        } catch (error) {
-            console.log(`URL ${i + 1} failed: ${error.message}`);
-            if (i === urls.length - 1) {
-                // Last URL failed, throw the error
-                throw new Error(`All Stooq URL attempts failed. Last error: ${error.message}`);
+    return new Promise((resolve, reject) => {
+        db.all(`
+            SELECT date, open, high, low, close, volume 
+            FROM historical_prices 
+            WHERE symbol = ? 
+            ORDER BY date ASC
+        `, [symbol.toUpperCase()], (err, rows) => {
+            if (err) {
+                console.error(`❌ Database error for ${symbol}:`, err);
+                reject(new Error(`Database error: ${err.message}`));
+                return;
             }
-        }
-    }
+            
+            if (rows.length === 0) {
+                console.log(`⚠️ No data found in database for ${symbol}`);
+                reject(new Error(`No data available for ${symbol} in local database`));
+                return;
+            }
+            
+            console.log(`✅ Found ${rows.length} data points for ${symbol} in local database`);
+            
+            // Convert to the expected format
+            const data = rows.map(row => ({
+                date: row.date,
+                open: parseFloat(row.open),
+                high: parseFloat(row.high),
+                low: parseFloat(row.low),
+                close: parseFloat(row.close),
+                volume: parseInt(row.volume)
+            }));
+            
+            resolve(data);
+        });
+    });
 }
 
-// Helper function to determine if a symbol is likely an ETF
+// Helper function to determine if a symbol is likely an ETF (for local data only)
 function isETFSymbol(symbol) {
-    // Common ETF patterns
+    // Common ETF patterns - kept for reference but not used for external API calls
     const etfPatterns = [
         // Major ETF families
         /^SPY$|^QQQ$|^VOO$|^IVV$|^VTI$|^VEA$|^VWO$|^BND$|^AGG$/i,
@@ -532,95 +702,7 @@ function isETFSymbol(symbol) {
     return etfPatterns.some(pattern => pattern.test(symbol));
 }
 
-// Helper function to fetch from a single URL
-function fetchFromURL(url) {
-    const https = require('https');
-    
-    return new Promise((resolve, reject) => {
-        https.get(url, (response) => {
-            let data = '';
-            
-            response.on('data', (chunk) => {
-                data += chunk;
-            });
-            
-            response.on('end', () => {
-                resolve(data);
-            });
-        }).on('error', (error) => {
-            reject(new Error(`Failed to fetch from ${url}: ${error.message}`));
-        });
-    });
-}
-
-// Helper function to parse Stooq CSV data
-function parseStooqCSV(csvData) {
-    console.log('Raw Stooq response:', csvData.substring(0, 200)); // Log first 200 chars for debugging
-    
-    const lines = csvData.trim().split('\n');
-    
-    // Check if Stooq returned "No data%" or similar error
-    if (csvData.includes('No data%') || csvData.includes('No data') || lines.length < 2) {
-        throw new Error(`Stooq returned no data. Response: "${csvData.substring(0, 100)}..."`);
-    }
-    
-    // Skip header line and parse data
-    const dataLines = lines.slice(1);
-    const parsedData = [];
-    
-    for (const line of dataLines) {
-        const columns = line.split(',');
-        
-        if (columns.length >= 5) {
-            const [date, open, high, low, close, volume] = columns;
-            
-            // Parse the date (Stooq format: YYYY-MM-DD)
-            const [year, month, day] = date.split('-').map(Number);
-            
-            // Parse numeric values with validation
-            const openPrice = parseFloat(open);
-            const highPrice = parseFloat(high);
-            const lowPrice = parseFloat(low);
-            const closePrice = parseFloat(close);
-            const volumeNum = parseInt(volume);
-            
-            // Validate price data integrity
-            if (isNaN(openPrice) || isNaN(highPrice) || isNaN(lowPrice) || isNaN(closePrice) || isNaN(volumeNum)) {
-                console.log(`⚠️ Invalid numeric data, skipping: ${line}`);
-                continue;
-            }
-            
-            // Validate price logic (high >= low, etc.)
-            if (highPrice < lowPrice || closePrice < 0 || openPrice < 0) {
-                console.log(`⚠️ Illogical price data, skipping: ${line}`);
-                continue;
-            }
-            
-            parsedData.push({
-                date: date,
-                open: openPrice,
-                high: highPrice,
-                low: lowPrice,
-                close: closePrice,
-                volume: volumeNum
-            });
-            
-        }
-    }
-    
-    if (parsedData.length === 0) {
-        throw new Error('No valid data points found');
-    }
-    
-    // Sort by date (oldest first) and log date range
-    parsedData.sort((a, b) => new Date(a.date) - new Date(b.date));
-    const startDate = parsedData[0]?.date;
-    const endDate = parsedData[parsedData.length - 1]?.date;
-    
-    console.log(`📊 CLEAN DATA RANGE: ${startDate} to ${endDate}`);
-    
-    return parsedData;
-}
+// Stooq CSV parsing function removed - all data must come from uploaded CSV/TXT files
 
 // Helper function to create ETF table
 function createETFTable(symbol) {
@@ -1918,198 +2000,7 @@ app.delete('/api/symbols/:symbol', async (req, res) => {
   }
 });
 
-// New API endpoint: Bulk fetch historical data for all symbols
-app.post('/api/bulk-fetch-historical-data', async (req, res) => {
-  try {
-    const { symbols = [], startDate = '2020-01-01', endDate = null, forceRefresh = false } = req.body;
-    
-    // If no symbols provided, fetch all active symbols
-    let targetSymbols = symbols;
-    if (!symbols || symbols.length === 0) {
-      const stmt = db.prepare('SELECT symbol FROM symbols WHERE is_active = 1');
-      const allSymbols = stmt.all();
-      targetSymbols = allSymbols.map(row => row.symbol);
-    }
-    
-    console.log(`Starting bulk fetch for ${targetSymbols.length} symbols`);
-    
-    const results = {
-      total: targetSymbols.length,
-      successful: 0,
-      failed: 0,
-      skipped: 0,
-      details: []
-    };
-    
-    // Process symbols in batches to avoid overwhelming the API
-    const batchSize = 5; // Process 5 symbols at a time
-    const batches = [];
-    
-    for (let i = 0; i < targetSymbols.length; i += batchSize) {
-      batches.push(targetSymbols.slice(i, i + batchSize));
-    }
-    
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      console.log(`Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} symbols)`);
-      
-      // Process batch concurrently
-      const batchPromises = batch.map(async (symbol) => {
-        try {
-          // Check if we need to refresh data
-          if (!forceRefresh) {
-            const freshnessStmt = db.prepare('SELECT last_updated FROM data_freshness WHERE symbol = ?');
-            const freshness = freshnessStmt.get(symbol);
-            
-            if (freshness && freshness.last_updated) {
-              const lastUpdate = new Date(freshness.last_updated);
-              const now = new Date();
-              const daysSinceUpdate = (now - lastUpdate) / (1000 * 60 * 60 * 24);
-              
-              // Skip if updated within last 24 hours
-              if (daysSinceUpdate < 1) {
-                results.skipped++;
-                results.details.push({
-                  symbol,
-                  status: 'skipped',
-                  reason: 'Data is recent (updated within 24 hours)'
-                });
-                return;
-              }
-            }
-          }
-          
-          // Fetch historical data from Stooq
-          const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}.US&d1=${startDate}&d2=${endDate || new Date().toISOString().split('T')[0]}&i=d`;
-          
-          const response = await fetch(stooqUrl);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          
-          const csvText = await response.text();
-          if (!csvText || csvText.includes('N/A') || csvText.length < 100) {
-            throw new Error('Invalid or empty data received from Stooq');
-          }
-          
-          // Parse CSV data
-          const lines = csvText.trim().split('\n');
-          const headers = lines[0].split(',');
-          
-          if (headers.length < 5) {
-            throw new Error('Invalid CSV format');
-          }
-          
-          // Find column indices
-          const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
-          const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
-          const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
-          const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
-          const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
-          const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
-          
-          if (dateIndex === -1 || closeIndex === -1) {
-            throw new Error('Required columns not found');
-          }
-          
-          // Process data rows
-          const dataRows = lines.slice(1).filter(line => line.trim() && !line.includes('N/A'));
-          
-          if (dataRows.length === 0) {
-            throw new Error('No valid data rows found');
-          }
-          
-          // Begin transaction for this symbol
-          db.serialize(() => {
-            // Delete existing data for this symbol
-            const deleteStmt = db.prepare('DELETE FROM historical_prices WHERE symbol = ?');
-            deleteStmt.run(symbol);
-            
-            // Insert new data
-            const insertStmt = db.prepare(`
-              INSERT INTO historical_prices (symbol, date, open, high, low, close, volume)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `);
-            
-            let insertedRows = 0;
-            for (const line of dataRows) {
-              const values = line.split(',');
-              if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
-                const date = values[dateIndex];
-                const open = parseFloat(values[openIndex]) || null;
-                const high = parseFloat(values[highIndex]) || null;
-                const low = parseFloat(values[lowIndex]) || null;
-                const close = parseFloat(values[closeIndex]) || null;
-                const volume = parseInt(values[volumeIndex]) || null;
-                
-                if (date && close && !isNaN(close)) {
-                  insertStmt.run(symbol, date, open, high, low, close, volume);
-                  insertedRows++;
-                }
-              }
-            }
-            
-            // Update data freshness
-            const upsertFreshness = db.prepare(`
-              INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
-              VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
-            `);
-            upsertFreshness.run(symbol);
-            
-            console.log(`✓ ${symbol}: Inserted ${insertedRows} rows`);
-          });
-          
-          results.successful++;
-          results.details.push({
-            symbol,
-            status: 'success',
-            rowsInserted: dataRows.length
-          });
-          
-        } catch (error) {
-          console.error(`✗ ${symbol}: ${error.message}`);
-          results.failed++;
-          results.details.push({
-            symbol,
-            status: 'failed',
-            error: error.message
-          });
-          
-          // Update error tracking
-          const errorStmt = db.prepare(`
-            INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count, last_error)
-            VALUES (?, CURRENT_TIMESTAMP, 'error', COALESCE((SELECT error_count + 1 FROM data_freshness WHERE symbol = ?), 1), ?)
-          `);
-          errorStmt.run(symbol, symbol, error.message);
-        }
-      });
-      
-      // Wait for batch to complete
-      await Promise.all(batchPromises);
-      
-      // Add delay between batches to be respectful to Stooq API
-      if (batchIndex < batches.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
-      }
-    }
-    
-    console.log(`Bulk fetch completed: ${results.successful} successful, ${results.failed} failed, ${results.skipped} skipped`);
-    
-    res.json({
-      status: 'success',
-      message: `Bulk fetch completed for ${targetSymbols.length} symbols`,
-      results
-    });
-    
-  } catch (error) {
-    console.error('Error in bulk fetch:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to perform bulk fetch',
-      error: error.message
-    });
-  }
-});
+// Bulk fetch endpoint removed - all data must come from uploaded CSV/TXT files
 
 // New API endpoint: Get data freshness status
 app.get('/api/data-freshness', async (req, res) => {
@@ -2231,86 +2122,7 @@ app.get('/api/symbols/:symbol/price-summary', async (req, res) => {
   }
 });
 
-// New API endpoint: Refresh specific symbol data
-app.post('/api/symbols/:symbol/refresh', async (req, res) => {
-  try {
-    const { symbol } = req.params;
-    const { startDate = '2020-01-01', endDate = null } = req.body;
-    
-    console.log(`Refreshing data for ${symbol}`);
-    
-    // Fetch from Stooq using the same function as other endpoints
-    const historicalData = await fetchStooqData(symbol);
-    
-    if (!historicalData || historicalData.length === 0) {
-      throw new Error('No historical data received from Stooq');
-    }
-    
-    // Use the historical data directly instead of parsing CSV
-    if (!historicalData || historicalData.length === 0) {
-      throw new Error('No historical data received from Stooq');
-    }
-    
-    // Filter out any invalid data rows
-    const dataRows = historicalData.filter(row => 
-      row.date && row.close && !isNaN(row.close)
-    );
-    
-    if (dataRows.length === 0) {
-      throw new Error('No valid data rows found');
-    }
-    
-    // Update database
-    db.serialize(() => {
-      // Delete existing data
-      const deleteStmt = db.prepare('DELETE FROM historical_prices WHERE symbol = ?');
-      deleteStmt.run(symbol.toUpperCase());
-      
-      // Insert new data
-      const insertStmt = db.prepare(`
-        INSERT INTO historical_prices (symbol, date, open, high, low, close, volume)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      
-      let insertedRows = 0;
-      for (const row of dataRows) {
-        const date = row.date;
-        const open = row.open || null;
-        const high = row.high || null;
-        const low = row.low || null;
-        const close = row.close || null;
-        const volume = row.volume || null;
-        
-        if (date && close && !isNaN(close)) {
-          insertStmt.run(symbol.toUpperCase(), date, open, high, low, close, volume);
-          insertedRows++;
-        }
-      }
-      
-      // Update freshness
-      const upsertFreshness = db.prepare(`
-        INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
-        VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
-      `);
-      upsertFreshness.run(symbol.toUpperCase());
-    });
-    
-    res.json({
-      status: 'success',
-      message: `Successfully refreshed data for ${symbol}`,
-      rowsInserted: dataRows.length,
-      lastUpdated: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error(`Error refreshing ${req.params.symbol}:`, error);
-    res.status(500).json({
-      status: 'error',
-      message: `Failed to refresh data for ${req.params.symbol}`,
-      error: error.message
-    });
-  }
-});
+// Refresh endpoint removed - all data must come from uploaded CSV/TXT files
 
 // Manual trigger for US symbols population
 app.post('/api/admin/populate-symbols', async (req, res) => {
@@ -2524,6 +2336,730 @@ function generateHealthRecommendations(overall, freshness, updates) {
     return recommendations;
 }
 
+// Get database statistics for admin panel
+app.get('/api/admin/database-stats', (req, res) => {
+    db.serialize(() => {
+        // Get symbol counts
+        db.get('SELECT COUNT(*) as total_symbols FROM symbols WHERE is_active = 1', (err, symbolResult) => {
+            if (err) {
+                return res.status(500).json({
+                    status: 'error',
+                    message: 'Failed to get symbol count',
+                    error: err.message
+                });
+            }
+            
+            // Get price records count
+            db.get('SELECT COUNT(*) as total_price_records FROM historical_prices', (err, priceResult) => {
+                if (err) {
+                    return res.status(500).json({
+                        status: 'error',
+                        message: 'Failed to get price records count',
+                        error: err.message
+                    });
+                }
+                
+                // Get last update time
+                db.get(`
+                    SELECT MAX(last_updated) as last_updated
+                    FROM data_freshness
+                `, (err, updateResult) => {
+                    if (err) {
+                        return res.status(500).json({
+                            status: 'error',
+                            message: 'Failed to get last update time',
+                            error: err.message
+                        });
+                    }
+                    
+                    // Get database file size
+                    const fs = require('fs');
+                    const dbPath = path.join(__dirname, '../database/market_data.db');
+                    let databaseSize = 'Unknown';
+                    
+                    try {
+                        const stats = fs.statSync(dbPath);
+                        const sizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
+                        databaseSize = `${sizeInMB} MB`;
+                    } catch (error) {
+                        console.error('Error getting database file size:', error);
+                    }
+                    
+                    res.json({
+                        status: 'success',
+                        totalSymbols: symbolResult.total_symbols,
+                        totalPriceRecords: priceResult.total_price_records,
+                        lastUpdated: updateResult.last_updated,
+                        databaseSize: databaseSize
+                    });
+                });
+            });
+        });
+    });
+});
+
+// Delete database endpoint
+app.delete('/api/admin/delete-database', (req, res) => {
+    db.serialize(() => {
+        try {
+            // Delete all data from tables
+            db.run('DELETE FROM historical_prices', (err) => {
+                if (err) {
+                    return res.status(500).json({
+                        status: 'error',
+                        message: 'Failed to delete historical prices',
+                        error: err.message
+                    });
+                }
+                
+                db.run('DELETE FROM symbols', (err) => {
+                    if (err) {
+                        return res.status(500).json({
+                            status: 'error',
+                            message: 'Failed to delete symbols',
+                            error: err.message
+                        });
+                    }
+                    
+                    db.run('DELETE FROM data_freshness', (err) => {
+                        if (err) {
+                            return res.status(500).json({
+                                status: 'error',
+                                message: 'Failed to delete data freshness',
+                                error: err.message
+                            });
+                        }
+                        
+                        // Reset auto-increment counters
+                        db.run('DELETE FROM sqlite_sequence', (err) => {
+                            if (err) {
+                                console.warn('Warning: Could not reset auto-increment counters:', err.message);
+                            }
+                            
+                            res.json({
+                                status: 'success',
+                                message: 'Database cleared successfully',
+                                deletedRecords: {
+                                    historical_prices: 'all',
+                                    symbols: 'all',
+                                    data_freshness: 'all'
+                                }
+                            });
+                        });
+                    });
+                });
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: 'error',
+                message: 'Failed to delete database',
+                error: error.message
+            });
+        }
+    });
+});
+
+// Upload folder and populate database endpoint
+app.post('/api/admin/upload-and-populate', upload.fields([
+    { name: 'files', maxCount: 50000 },
+    { name: 'compressedFiles', maxCount: 10 }
+]), async (req, res) => {
+    const { convertToUppercase = true, preventDuplicates = true, folderName, batchNumber, totalBatches } = req.body;
+    
+    if ((!req.files || !req.files.files || req.files.files.length === 0) && 
+        (!req.files || !req.files.compressedFiles || req.files.compressedFiles.length === 0)) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'No files uploaded'
+        });
+    }
+    
+    try {
+        const uploadDir = path.join(__dirname, 'uploads');
+        let csvFiles = [];
+        
+        // Handle compressed files
+        if (req.files.compressedFiles && req.files.compressedFiles.length > 0) {
+            const compressedFile = req.files.compressedFiles[0];
+            console.log(`Processing compressed file: ${compressedFile.originalname} (${compressedFile.size} bytes)`);
+            
+            try {
+                const zip = new AdmZip(compressedFile.path);
+                const zipEntries = zip.getEntries();
+                
+                console.log(`Found ${zipEntries.length} entries in compressed archive`);
+                
+                // Extract and filter CSV files from zip with recursive search
+                for (const entry of zipEntries) {
+                    const fileName = entry.entryName.toLowerCase();
+                    console.log(`Checking entry: ${entry.entryName}`);
+                    
+                    if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
+                        // Create a temporary file for processing
+                        const tempPath = path.join(uploadDir, `temp_${Date.now()}_${path.basename(entry.entryName)}`);
+                        fs.writeFileSync(tempPath, entry.getData());
+                        
+                        csvFiles.push({
+                            originalname: entry.entryName,
+                            path: tempPath,
+                            isTemp: true
+                        });
+                        
+                        console.log(`✓ Extracted CSV file: ${entry.entryName}`);
+                    }
+                }
+                
+                console.log(`Successfully extracted ${csvFiles.length} CSV/TXT files from compressed archive`);
+            } catch (error) {
+                console.error('Error processing compressed file:', error);
+                return res.status(400).json({
+                    status: 'error',
+                    message: 'Failed to process compressed file',
+                    error: error.message
+                });
+            }
+        }
+        
+        // Handle regular files
+        if (req.files.files && req.files.files.length > 0) {
+            const regularFiles = req.files.files.filter(file => {
+                const fileName = file.originalname.toLowerCase();
+                return fileName.endsWith('.csv') || fileName.endsWith('.txt');
+            });
+            
+            csvFiles = csvFiles.concat(regularFiles);
+        }
+        
+        if (csvFiles.length === 0) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'No CSV or TXT files found in uploaded folder or compressed archive'
+            });
+        }
+        
+        const isBatchUpload = batchNumber && totalBatches;
+        const batchInfo = isBatchUpload ? ` (Batch ${batchNumber}/${totalBatches})` : '';
+        
+        console.log(`Processing ${csvFiles.length} CSV/TXT files from folder: ${folderName || 'Unknown'}${batchInfo}`);
+        
+        let totalSymbolsAdded = 0;
+        let totalRecordsAdded = 0;
+        let processedFiles = 0;
+        const errors = [];
+        const processedSymbols = [];
+        
+        // Process files in batches for better performance with large datasets
+        const batchSize = 25; // Increased batch size for better performance
+        const totalFiles = csvFiles.length;
+        
+        console.log(`Processing ${totalFiles} files in batches of ${batchSize}...`);
+        
+        for (let i = 0; i < totalFiles; i += batchSize) {
+            const batch = csvFiles.slice(i, i + batchSize);
+            const currentBatch = Math.floor(i / batchSize) + 1;
+            const totalBatches = Math.ceil(totalFiles / batchSize);
+            
+            const processingBatchInfo = isBatchUpload ? ` (Upload Batch ${batchNumber}/${totalBatches})` : '';
+            console.log(`🔄 Processing batch ${currentBatch}/${totalBatches} (files ${i + 1}-${Math.min(i + batchSize, totalFiles)})${processingBatchInfo}`);
+            
+            // Process batch in parallel for better performance
+            const batchPromises = batch.map(async (file) => {
+                try {
+                    const filePath = file.isTemp ? file.path : path.join(uploadDir, file.originalname);
+                    const result = await processCSVFile(filePath, convertToUppercase, preventDuplicates, file.originalname);
+                    
+                    if (result.symbolsAdded > 0) {
+                        // Extract symbol name from filename
+                        let symbol = path.basename(file.originalname, path.extname(file.originalname));
+                        // Clean symbol name (remove .US suffix)
+                        symbol = cleanSymbolName(symbol);
+                        const processedSymbol = convertToUppercase ? symbol.toUpperCase() : symbol;
+                        processedSymbols.push(processedSymbol);
+                    }
+                    
+                    return { success: true, result, file: file.originalname };
+                } catch (error) {
+                    const errorMsg = `Error processing ${file.originalname}: ${error.message}`;
+                    errors.push(errorMsg);
+                    console.error(errorMsg);
+                    return { success: false, error: errorMsg, file: file.originalname };
+                }
+            });
+            
+            // Wait for batch to complete
+            const batchResults = await Promise.all(batchPromises);
+            
+            // Aggregate results
+            for (const batchResult of batchResults) {
+                if (batchResult.success) {
+                    totalSymbolsAdded += batchResult.result.symbolsAdded;
+                    totalRecordsAdded += batchResult.result.recordsAdded;
+                    processedFiles++;
+                }
+            }
+            
+            // Log detailed progress
+            const progressPercent = Math.round((processedFiles / totalFiles) * 100);
+            const batchProgressInfo = isBatchUpload ? ` (Upload Batch ${batchNumber}/${totalBatches})` : '';
+            console.log(`📊 Progress: ${progressPercent}% (${processedFiles}/${totalFiles} files) - Batch ${currentBatch}/${totalBatches} completed${batchProgressInfo}`);
+            console.log(`📈 Current stats: ${totalSymbolsAdded} symbols, ${totalRecordsAdded} records added`);
+        }
+        
+        // Clean up uploaded files
+        const allFiles = [];
+        if (req.files.files) allFiles.push(...req.files.files);
+        if (req.files.compressedFiles) allFiles.push(...req.files.compressedFiles);
+        
+        for (const file of allFiles) {
+            try {
+                const filePath = path.join(uploadDir, file.originalname);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            } catch (error) {
+                console.warn(`Could not delete uploaded file ${file.originalname}:`, error.message);
+            }
+        }
+        
+        // Clean up temporary files from compressed archives
+        for (const file of csvFiles) {
+            if (file.isTemp && file.path) {
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (error) {
+                    console.warn(`Could not delete temporary file ${file.path}:`, error.message);
+                }
+            }
+        }
+        
+        const folderInfo = folderName ? `from folder "${folderName}"` : 'from uploaded files';
+        
+        res.json({
+            status: 'success',
+            message: `Database populated successfully ${folderInfo}`,
+            symbolsAdded: totalSymbolsAdded,
+            recordsAdded: totalRecordsAdded,
+            filesProcessed: processedFiles,
+            totalFilesUploaded: req.files.length,
+            processedSymbols: processedSymbols,
+            errors: errors,
+            folderName: folderName,
+            convertToUppercase: convertToUppercase,
+            preventDuplicates: preventDuplicates
+        });
+        
+        } catch (error) {
+            console.error('Error in upload-and-populate endpoint:', error);
+            res.status(500).json({
+                status: 'error',
+                message: 'Internal server error during file processing',
+                error: error.message
+            });
+        }
+});
+
+// Remove duplicates from historical_prices table
+app.post('/api/admin/remove-duplicates', async (req, res) => {
+    console.log('🧹 Starting duplicate removal process...');
+    
+    try {
+        const startTime = Date.now();
+        
+        // Get initial count
+        const initialCount = await new Promise((resolve, reject) => {
+            db.get('SELECT COUNT(*) as count FROM historical_prices', (err, row) => {
+                if (err) reject(err);
+                else resolve(row.count);
+            });
+        });
+        
+        console.log(`📊 Initial records: ${initialCount.toLocaleString()}`);
+        
+        // Remove duplicates using SQLite's ROWID
+        await new Promise((resolve, reject) => {
+            db.run(`
+                DELETE FROM historical_prices 
+                WHERE ROWID NOT IN (
+                    SELECT MIN(ROWID) 
+                    FROM historical_prices 
+                    GROUP BY symbol, date
+                )
+            `, function(err) {
+                if (err) {
+                    console.error('Error removing duplicates:', err);
+                    reject(err);
+                } else {
+                    const deletedCount = this.changes;
+                    console.log(`🗑️ Removed ${deletedCount.toLocaleString()} duplicate records`);
+                    resolve(deletedCount);
+                }
+            });
+        });
+        
+        // Get final count
+        const finalCount = await new Promise((resolve, reject) => {
+            db.get('SELECT COUNT(*) as count FROM historical_prices', (err, row) => {
+                if (err) reject(err);
+                else resolve(row.count);
+            });
+        });
+        
+        const processingTime = Date.now() - startTime;
+        
+        console.log(`✅ Duplicate removal completed in ${processingTime}ms`);
+        console.log(`📊 Final records: ${finalCount.toLocaleString()}`);
+        
+        res.json({
+            status: 'success',
+            message: 'Duplicates removed successfully',
+            initialCount: initialCount,
+            finalCount: finalCount,
+            duplicatesRemoved: initialCount - finalCount,
+            processingTime: processingTime
+        });
+        
+    } catch (error) {
+        console.error('❌ Error in duplicate removal:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Failed to remove duplicates',
+            error: error.message
+        });
+    }
+});
+
+// Upload structured stock data as JSON endpoint
+app.post('/api/admin/upload-structured-data', async (req, res) => {
+    console.log(`📥 Received upload request with body size: ${JSON.stringify(req.body).length} characters`);
+    
+    const { stocks, convertToUppercase = true, preventDuplicates = true, folderName } = req.body;
+    
+    if (!stocks || !Array.isArray(stocks) || stocks.length === 0) {
+        console.log('❌ No stock data provided in request');
+        return res.status(400).json({
+            status: 'error',
+            message: 'No stock data provided'
+        });
+    }
+    
+    console.log(`📊 Processing ${stocks.length} stocks from structured data upload`);
+    console.log(`📈 Estimated total records: ${stocks.reduce((sum, stock) => sum + (stock.records?.length || 0), 0)}`);
+    
+    try {
+        console.log(`Processing ${stocks.length} stocks from structured data upload`);
+        
+        let totalSymbolsAdded = 0;
+        let totalRecordsAdded = 0;
+        const errors = [];
+        
+        // Process each stock
+        for (const stockData of stocks) {
+            const { symbol, records } = stockData;
+            
+            if (!symbol || !records || !Array.isArray(records) || records.length === 0) {
+                errors.push(`Invalid stock data for symbol: ${symbol}`);
+                continue;
+            }
+            
+            try {
+                // Clean symbol name (remove .US suffix)
+                const cleanSymbol = cleanSymbolName(symbol);
+                const finalSymbol = convertToUppercase ? cleanSymbol.toUpperCase() : cleanSymbol;
+                
+                // Check for duplicates if requested (optimized)
+                if (preventDuplicates) {
+                    const existingSymbol = await new Promise((resolve, reject) => {
+                        db.get('SELECT 1 FROM symbols WHERE symbol = ? LIMIT 1', [finalSymbol], (err, row) => {
+                            if (err) reject(err);
+                            else resolve(row);
+                        });
+                    });
+                    
+                    if (existingSymbol) {
+                        console.log(`Skipping duplicate symbol: ${finalSymbol}`);
+                        continue;
+                    }
+                }
+                
+                // Insert symbol into symbols table (non-blocking)
+                db.run(`
+                    INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `, [finalSymbol, finalSymbol, 'Unknown', 'Unknown', 'NASDAQ', 1], (err) => {
+                    if (err) {
+                        console.error(`Error inserting symbol ${finalSymbol}:`, err);
+                    }
+                });
+                
+                // Insert price data using chunked bulk insert (handles SQLite parameter limit)
+                const validRecords = records.filter(record => record.date && record.close && !isNaN(record.close));
+                
+                if (validRecords.length > 0) {
+                    // SQLite has a limit of 999 parameters per query, so we need to chunk
+                    const chunkSize = 140; // 140 records * 7 parameters = 980 parameters (under limit)
+                    let recordsInserted = 0;
+                    
+                    for (let i = 0; i < validRecords.length; i += chunkSize) {
+                        const chunk = validRecords.slice(i, i + chunkSize);
+                        const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+                        const values = chunk.flatMap(record => [
+                            finalSymbol,
+                            record.date,
+                            record.open,
+                            record.high,
+                            record.low,
+                            record.close,
+                            record.volume
+                        ]);
+                        
+                        await new Promise((resolve, reject) => {
+                            db.run(`
+                                INSERT INTO historical_prices (symbol, date, open, high, low, close, volume)
+                                VALUES ${placeholders}
+                            `, values, function(err) {
+                                if (err) {
+                                    console.error(`Error inserting records for ${finalSymbol}:`, err);
+                                    reject(err);
+                                } else {
+                                    recordsInserted += this.changes || 0;
+                                    resolve();
+                                }
+                            });
+                        });
+                    }
+                    
+                    totalRecordsAdded += recordsInserted;
+                }
+                
+                // Update data freshness (non-blocking)
+                db.run(`
+                    INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+                    VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
+                `, [finalSymbol], (err) => {
+                    if (err) {
+                        console.error(`Error updating data freshness for ${finalSymbol}:`, err);
+                    }
+                });
+                
+                totalSymbolsAdded++;
+                console.log(`✓ Processed ${finalSymbol}: ${validRecords.length} records`);
+                
+            } catch (error) {
+                const errorMsg = `Error processing ${symbol}: ${error.message}`;
+                errors.push(errorMsg);
+                console.error(errorMsg);
+            }
+        }
+        
+        const folderInfo = folderName ? `from folder "${folderName}"` : 'from structured data';
+        
+        console.log(`✅ Upload completed successfully: ${totalSymbolsAdded} symbols, ${totalRecordsAdded} records`);
+        
+        res.json({
+            status: 'success',
+            message: `Database populated successfully ${folderInfo}`,
+            symbolsAdded: totalSymbolsAdded,
+            recordsAdded: totalRecordsAdded,
+            errors: errors,
+            folderName: folderName,
+            convertToUppercase: convertToUppercase,
+            preventDuplicates: preventDuplicates,
+            note: 'Duplicates will be removed in background cleanup'
+        });
+        
+    } catch (error) {
+        console.error('❌ Error in upload-structured-data endpoint:', error);
+        console.error('❌ Error stack:', error.stack);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error during structured data processing',
+            error: error.message
+        });
+    }
+});
+
+// Populate database from folder endpoint
+app.post('/api/admin/populate-database', async (req, res) => {
+    const { folderPath, convertToUppercase = true, preventDuplicates = true } = req.body;
+    
+    if (!folderPath) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Folder path is required'
+        });
+    }
+    
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        
+        // Validate folder exists
+        if (!fs.existsSync(folderPath)) {
+            return res.status(400).json({
+                status: 'error',
+                message: `Folder does not exist: ${folderPath}`
+            });
+        }
+        
+        // Read files from folder
+        const files = fs.readdirSync(folderPath);
+        const csvFiles = files.filter(file => 
+            file.toLowerCase().endsWith('.csv') || 
+            file.toLowerCase().endsWith('.txt')
+        );
+        
+        if (csvFiles.length === 0) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'No CSV or TXT files found in the specified folder'
+            });
+        }
+        
+        let totalSymbolsAdded = 0;
+        let totalRecordsAdded = 0;
+        let errors = [];
+        
+        // Process each file
+        for (const file of csvFiles) {
+            try {
+                const filePath = path.join(folderPath, file);
+                const fileContent = fs.readFileSync(filePath, 'utf8');
+                
+                // Extract symbol from filename (remove extension)
+                let symbol = path.basename(file, path.extname(file));
+                
+                // Clean symbol name (remove .US suffix)
+                symbol = cleanSymbolName(symbol);
+                
+                // Convert to uppercase if requested
+                if (convertToUppercase) {
+                    symbol = symbol.toUpperCase();
+                }
+                
+                // Check for duplicates if requested
+                if (preventDuplicates) {
+                    const existingSymbol = await new Promise((resolve, reject) => {
+                        db.get('SELECT symbol FROM symbols WHERE symbol = ?', [symbol], (err, row) => {
+                            if (err) reject(err);
+                            else resolve(row);
+                        });
+                    });
+                    
+                    if (existingSymbol) {
+                        console.log(`Skipping duplicate symbol: ${symbol}`);
+                        continue;
+                    }
+                }
+                
+                // Parse CSV content
+                const lines = fileContent.trim().split('\n');
+                const headers = lines[0].split(',');
+                
+                // Find column indices
+                const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
+                const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
+                const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
+                const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
+                const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
+                const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
+                
+                if (dateIndex === -1 || closeIndex === -1) {
+                    errors.push(`File ${file}: Missing required columns (date, close)`);
+                    continue;
+                }
+                
+                // Process data rows
+                const dataRows = lines.slice(1).filter(line => line.trim() && !line.includes('N/A'));
+                
+                if (dataRows.length === 0) {
+                    errors.push(`File ${file}: No valid data rows found`);
+                    continue;
+                }
+                
+                // Insert symbol into symbols table
+                await new Promise((resolve, reject) => {
+                    db.run(`
+                        INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `, [symbol, symbol, 'Unknown', 'Unknown', 'NASDAQ', 1], (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+                });
+                
+                // Insert price data
+                let recordsInserted = 0;
+                for (const line of dataRows) {
+                    const values = line.split(',');
+                    if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
+                        const date = values[dateIndex];
+                        const open = parseFloat(values[openIndex]) || null;
+                        const high = parseFloat(values[highIndex]) || null;
+                        const low = parseFloat(values[lowIndex]) || null;
+                        const close = parseFloat(values[closeIndex]) || null;
+                        const volume = parseInt(values[volumeIndex]) || null;
+                        
+                        if (date && close && !isNaN(close)) {
+                            await new Promise((resolve, reject) => {
+                                db.run(`
+                                    INSERT OR IGNORE INTO historical_prices (symbol, date, open, high, low, close, volume)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                `, [symbol, date, open, high, low, close, volume], (err) => {
+                                    if (err) reject(err);
+                                    else resolve();
+                                });
+                            });
+                            recordsInserted++;
+                        }
+                    }
+                }
+                
+                // Update data freshness
+                await new Promise((resolve, reject) => {
+                    db.run(`
+                        INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
+                        VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
+                    `, [symbol], (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+                });
+                
+                totalSymbolsAdded++;
+                totalRecordsAdded += recordsInserted;
+                
+                console.log(`✓ Processed ${file}: ${symbol} - ${recordsInserted} records`);
+                
+            } catch (error) {
+                errors.push(`File ${file}: ${error.message}`);
+                console.error(`Error processing file ${file}:`, error);
+            }
+        }
+        
+        res.json({
+            status: 'success',
+            message: `Database populated successfully`,
+            symbolsAdded: totalSymbolsAdded,
+            recordsAdded: totalRecordsAdded,
+            filesProcessed: csvFiles.length,
+            errors: errors,
+            folderPath: folderPath,
+            convertToUppercase: convertToUppercase,
+            preventDuplicates: preventDuplicates
+        });
+        
+    } catch (error) {
+        console.error('Error populating database:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Failed to populate database',
+            error: error.message
+        });
+    }
+});
+
 // Get database summary (simplified version)
 app.get('/api/admin/database-summary', (req, res) => {
     db.serialize(() => {
@@ -2654,209 +3190,48 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
-// Function to fetch all US symbols from Stooq and populate database
+// Function to check local database status and provide information
 async function populateAllUSSymbols() {
-    console.log('🔄 Starting comprehensive US symbols population...');
-    console.log('📊 Target: Real US symbols from SEC + Major ETFs');
+    console.log('🔍 Checking local database status...');
+    console.log('📊 This application now uses local database only - no external API calls');
     
-    // First, attempt bulk download to see if it's available
-    console.log('🚀 Attempting bulk download first...');
-    const bulkResult = await attemptBulkDownload();
+    // Check local database status
+    const dbStatus = await checkLocalDatabaseStatus();
     
-    if (bulkResult.accessible && bulkResult.hasDownloads) {
-        console.log('🎯 Bulk download available! This would be much faster than individual requests.');
-        console.log('💡 Consider implementing bulk download processing for production use.');
-    } else if (bulkResult.accessible) {
-        console.log('⚠️ Bulk URLs accessible but no obvious downloads found.');
-        console.log('💡 May need to implement custom scraping logic for bulk data.');
+    if (dbStatus.hasData) {
+        console.log(`✅ Local database contains ${dbStatus.symbolCount} active symbols`);
+        console.log('💡 Use the Admin page to upload CSV files to populate the database');
+        console.log('💡 All analysis will be performed using local data only');
     } else {
-        console.log('❌ Bulk download not accessible, proceeding with individual symbol requests.');
+        console.log('⚠️ Local database is empty');
+        console.log('💡 Please use the Admin page to upload CSV files to populate the database');
+        console.log('💡 No external API calls will be made - all data must be uploaded locally');
     }
     
-    // Define the symbol categories
-    const symbolCategories = [
-        { name: 'US Stocks (SEC)', prefix: 'us_stocks', type: 'stock', source: 'sec' },
-        { name: 'Major ETFs', prefix: 'major_etfs', type: 'etf', source: 'curated' }
-    ];
-    
-    // Add ETF symbols to the stock list for comprehensive coverage
-    console.log('🔄 Adding ETF symbols to the main symbol list for comprehensive coverage...');
-    
-    let totalSymbolsProcessed = 0;
-    let totalSymbolsSuccess = 0;
-    let totalSymbolsFailed = 0;
-    const startTime = Date.now();
-    
-    // Real-time rate tracking
-    let recentSymbolsProcessed = 0;
-    let recentStartTime = Date.now();
-    const RATE_UPDATE_INTERVAL = 25; // Update rate every 25 symbols
-    
-    for (const category of symbolCategories) {
-        console.log(`\n📊 Processing ${category.name}...`);
-        
-        try {
-            let symbols = [];
-            
-            // Fetch symbols based on category
-            if (category.source === 'sec') {
-                const stockSymbols = await fetchSECCompanyTickers();
-                const etfSymbols = await fetchETFSymbols();
-                // Combine stocks and ETFs for comprehensive coverage
-                symbols = [...stockSymbols, ...etfSymbols];
-                console.log(`📊 Combined: ${stockSymbols.length} stocks + ${etfSymbols.length} ETFs = ${symbols.length} total symbols`);
-            } else if (category.source === 'curated') {
-                symbols = await fetchETFSymbols();
-            }
-            
-            console.log(`✅ Found ${symbols.length} symbols for ${category.name}`);
-            
-            // Process each symbol with better progress tracking
-            for (let i = 0; i < symbols.length; i++) {
-                const symbol = symbols[i];
-                totalSymbolsProcessed++;
-                
-                try {
-                    // Add symbol to database if not exists
-                    await addSymbolToDatabase(symbol, category.type, category.name);
-                    
-                    // Fetch historical data (with rate limiting)
-                    const rowsInserted = await fetchAndStoreHistoricalData(symbol);
-                    totalSymbolsSuccess++;
-                    
-                    // Progress update every 25 symbols with real-time rate tracking
-                    if (totalSymbolsProcessed % RATE_UPDATE_INTERVAL === 0) {
-                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                        const overallRate = (totalSymbolsProcessed / elapsed).toFixed(1);
-                        
-                        // Calculate recent rate (last 25 symbols)
-                        const recentElapsed = ((Date.now() - recentStartTime) / 1000).toFixed(1);
-                        const recentRate = recentElapsed > 0 ? (RATE_UPDATE_INTERVAL / recentElapsed).toFixed(1) : 'N/A';
-                        
-                        const successRate = ((totalSymbolsSuccess / totalSymbolsProcessed) * 100).toFixed(1);
-                        console.log(`📈 Progress: ${totalSymbolsProcessed} symbols processed (Overall: ${overallRate}/sec, Recent: ${recentRate}/sec, ${successRate}% success) - ${symbol} added with ${rowsInserted} data points`);
-                        
-                        // Reset recent tracking
-                        recentSymbolsProcessed = 0;
-                        recentStartTime = Date.now();
-                    }
-                    
-                    // Track recent processing for rate calculation
-                    recentSymbolsProcessed++;
-                    
-                    // Rate limiting: wait 25ms between requests (40 req/sec - more aggressive but still respectful)
-                    await new Promise(resolve => setTimeout(resolve, 25));
-                    
-                } catch (error) {
-                    console.log(`⚠️ Failed to process ${symbol}: ${error.message}`);
-                    totalSymbolsFailed++;
-                    
-                    // If we have too many failures, slow down
-                    if (totalSymbolsFailed > 50) {
-                        console.log(`🔄 Too many failures, increasing delay to 200ms`);
-                        await new Promise(resolve => setTimeout(resolve, 200));
-                    }
-                }
-            }
-            
-            console.log(`✅ Completed ${category.name}: ${symbols.length} symbols processed`);
-            
-        } catch (error) {
-            console.error(`❌ Error processing ${category.name}:`, error);
-        }
-    }
-    
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`\n🎯 US Symbols Population Complete!`);
-    console.log(`⏱️ Total Time: ${totalTime} seconds`);
-    console.log(`📊 Total Processed: ${totalSymbolsProcessed}`);
-    console.log(`✅ Successful: ${totalSymbolsSuccess}`);
-    console.log(`❌ Failed: ${totalSymbolsFailed}`);
-    console.log(`📈 Success Rate: ${((totalSymbolsSuccess / totalSymbolsProcessed) * 100).toFixed(1)}%`);
-    
-    // Log database statistics
-    logDatabaseStats();
+    console.log('🚀 Application ready for local data analysis');
 }
 
-// Function to fetch symbols from SEC company tickers
-async function fetchSECCompanyTickers() {
+// Function to get symbols from local database only
+async function fetchLocalSymbols() {
     try {
-        console.log('🔍 Fetching SEC company tickers...');
+        console.log('🔍 Fetching symbols from local database...');
         
-        // Try multiple approaches to get SEC data
-        const secUrls = [
-            'https://www.sec.gov/files/company_tickers.json',
-            'https://www.sec.gov/files/company_tickers_exchange.json',
-            'https://www.sec.gov/files/company_tickers_mf.json'
-        ];
-        
-        let secData = null;
-        
-        for (const url of secUrls) {
-            try {
-                console.log(`📡 Trying SEC URL: ${url}`);
-                
-                const response = await fetch(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; StockMarketAnalysis/1.0)',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-                    },
-                    timeout: 10000
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log(`✅ Successfully fetched SEC data from ${url}`);
-                    secData = data;
-                    break;
-                } else {
-                    console.log(`⚠️ SEC URL ${url} returned status: ${response.status}`);
+        return new Promise((resolve, reject) => {
+            db.all("SELECT DISTINCT symbol FROM symbols WHERE is_active = 1 ORDER BY symbol", (err, rows) => {
+                if (err) {
+                    console.error('❌ Database error fetching symbols:', err);
+                    reject(err);
+                    return;
                 }
-            } catch (error) {
-                console.log(`❌ Failed to fetch from ${url}: ${error.message}`);
-            }
-        }
-        
-        if (!secData) {
-            console.log('⚠️ Could not fetch SEC data, falling back to comprehensive symbol list');
-            return fetchComprehensiveSymbolList();
-        }
-        
-        // Parse SEC data and extract symbols
-        const symbols = [];
-        
-        if (secData && typeof secData === 'object') {
-            // Handle different SEC data formats
-            if (Array.isArray(secData)) {
-                // Array format
-                secData.forEach(company => {
-                    if (company.ticker && typeof company.ticker === 'string') {
-                        symbols.push(company.ticker.toUpperCase());
-                    }
-                });
-            } else {
-                // Object format (most common)
-                Object.values(secData).forEach(company => {
-                    if (company && company.ticker && typeof company.ticker === 'string') {
-                        symbols.push(company.ticker.toUpperCase());
-                    }
-                });
-            }
-        }
-        
-        console.log(`📊 Extracted ${symbols.length} symbols from SEC data`);
-        
-        // Remove duplicates and filter valid symbols
-        const uniqueSymbols = [...new Set(symbols)].filter(symbol => 
-            symbol && symbol.length <= 5 && /^[A-Z]+$/.test(symbol)
-        );
-        
-        console.log(`✅ Final unique symbols: ${uniqueSymbols.length}`);
-        
-        return uniqueSymbols;
+                
+                const symbols = rows.map(row => row.symbol.toUpperCase());
+                console.log(`✅ Found ${symbols.length} symbols in local database`);
+                resolve(symbols);
+            });
+        });
         
     } catch (error) {
-        console.error('❌ Error fetching SEC company tickers:', error);
+        console.error('❌ Error fetching local symbols:', error);
         console.log('🔄 Falling back to comprehensive symbol list');
         return fetchComprehensiveSymbolList();
     }
@@ -3176,89 +3551,33 @@ async function fetchAndStoreHistoricalData(symbol) {
     }
 }
 
-// Function to attempt bulk download from Stooq
-async function attemptBulkDownload() {
-    console.log('🚀 Attempting bulk download from Stooq...');
+// Function to check local database status
+async function checkLocalDatabaseStatus() {
+    console.log('🔍 Checking local database status...');
     
     try {
-        // Try to access Stooq bulk data directory
-        const bulkUrls = [
-            'https://stooq.com/db/h/',
-            'https://stooq.com/db/h/daily/us/',
-            'https://stooq.com/db/h/daily/us/nasdaq_stocks/',
-            'https://stooq.com/db/h/daily/us/nyse_stocks/'
-        ];
-        
-        for (const url of bulkUrls) {
-            try {
-                console.log(`📡 Trying bulk URL: ${url}`);
-                
-                const response = await fetch(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; StockMarketAnalysis/1.0)',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-                    },
-                    timeout: 10000
-                });
-                
-                if (response.ok) {
-                    const content = await response.text();
-                    console.log(`✅ Bulk URL accessible: ${url}`);
-                    console.log(`📊 Content length: ${content.length} characters`);
-                    
-                    // Check if it contains downloadable data
-                    if (content.includes('.zip') || content.includes('.csv') || content.includes('download')) {
-                        console.log('🎯 Found downloadable content in bulk URL!');
-                        return { url, accessible: true, hasDownloads: true };
-                    } else {
-                        console.log('⚠️ URL accessible but no obvious downloads found');
-                        return { url, accessible: true, hasDownloads: false };
-                    }
+        return new Promise((resolve, reject) => {
+            db.get("SELECT COUNT(*) as count FROM symbols WHERE is_active = 1", (err, row) => {
+                if (err) {
+                    console.error('❌ Database error checking status:', err);
+                    reject(err);
+                    return;
                 }
-            } catch (error) {
-                console.log(`❌ Bulk URL ${url} failed: ${error.message}`);
-            }
-        }
-        
-        console.log('❌ No bulk URLs accessible');
-        return { accessible: false, hasDownloads: false };
-        
-    } catch (error) {
-        console.error('❌ Error attempting bulk download:', error);
-        return { accessible: false, hasDownloads: false };
-    }
-}
-
-// Function to download bulk data for a specific exchange
-async function downloadBulkExchangeData(exchange, symbols) {
-    console.log(`📦 Attempting bulk download for ${exchange} (${symbols.length} symbols)...`);
-    
-    try {
-        // Try to download a compressed file if available
-        const bulkUrl = `https://stooq.com/db/h/daily/us/${exchange.toLowerCase()}_stocks.zip`;
-        
-        console.log(`📡 Trying bulk download: ${bulkUrl}`);
-        
-        const response = await fetch(bulkUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; StockMarketAnalysis/1.0)',
-                'Accept': 'application/zip,application/octet-stream'
-            },
-            timeout: 30000
+                
+                const symbolCount = row.count;
+                console.log(`✅ Local database contains ${symbolCount} active symbols`);
+                
+                resolve({ 
+                    accessible: true, 
+                    hasData: symbolCount > 0, 
+                    symbolCount: symbolCount 
+                });
+            });
         });
         
-        if (response.ok) {
-            console.log(`✅ Bulk download successful for ${exchange}!`);
-            // Here you would process the ZIP file
-            return { success: true, method: 'bulk_zip' };
-        } else {
-            console.log(`⚠️ Bulk download failed for ${exchange}, status: ${response.status}`);
-            return { success: false, method: 'bulk_zip' };
-        }
-        
     } catch (error) {
-        console.log(`❌ Bulk download error for ${exchange}: ${error.message}`);
-        return { success: false, method: 'bulk_zip', error: error.message };
+        console.error('❌ Error checking local database status:', error);
+        return { accessible: false, hasData: false, symbolCount: 0 };
     }
 }
 

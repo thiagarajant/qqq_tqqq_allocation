@@ -1,6 +1,6 @@
 {
   "name": "stock-market-analysis",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "description": "A comprehensive web application for stock market analysis, portfolio simulation, and drawdown cycle detection",
   "main": "backend/server.js",
   "scripts": {
