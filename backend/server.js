@@ -1434,6 +1434,15 @@ app.use((err, req, res, next) => {
 
 // These will be moved to the end after all API routes
 
+// Helper function to convert ISO date string to YYYYMMDD format
+function convertISODateToYYYYMMDD(isoDate) {
+    const date = new Date(isoDate);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return parseInt(`${year}${month}${day}`);
+}
+
 // Portfolio simulation endpoint
 app.post('/api/simulate', (req, res) => {
     const { amount, startDate, endDate, threshold, monthlyInvestment = 0, baseETF = 'QQQ', leveragedETF = 'TQQQ' } = req.body;
@@ -1478,6 +1487,10 @@ app.post('/api/simulate', (req, res) => {
 // Helper function to execute simulation with dynamic ETF parameters
 function executeSimulation(amount, startDate, endDate, threshold, monthlyInvestment, baseETF, leveragedETF, baseTable, leveragedTable, res) {
 
+    // Convert ISO dates to YYYYMMDD format for database query
+    const startDateYYYYMMDD = convertISODateToYYYYMMDD(startDate);
+    const endDateYYYYMMDD = convertISODateToYYYYMMDD(endDate);
+
     // Get base ETF data for the period
     const baseQuery = `
         SELECT date, close 
@@ -1494,7 +1507,7 @@ function executeSimulation(amount, startDate, endDate, threshold, monthlyInvestm
         ORDER BY date
     `;
 
-    db.all(baseQuery, [baseETF, startDate, endDate], (err, baseData) => {
+    db.all(baseQuery, [baseETF, startDateYYYYMMDD, endDateYYYYMMDD], (err, baseData) => {
         if (err) {
             console.error(`${baseETF} database error:`, err);
             return res.status(500).json({ error: 'Database error' });
@@ -1504,7 +1517,7 @@ function executeSimulation(amount, startDate, endDate, threshold, monthlyInvestm
             return res.status(400).json({ error: `No ${baseETF} data found for the specified date range` });
         }
 
-        db.all(leveragedQuery, [leveragedETF, startDate, endDate], (err, leveragedData) => {
+        db.all(leveragedQuery, [leveragedETF, startDateYYYYMMDD, endDateYYYYMMDD], (err, leveragedData) => {
             if (err) {
                 console.error(`${leveragedETF} database error:`, err);
                 return res.status(500).json({ error: 'Database error' });
@@ -2754,103 +2767,116 @@ app.post('/api/admin/upload-structured-data', async (req, res) => {
         let totalRecordsAdded = 0;
         const errors = [];
         
-        // Process each stock
-        for (const stockData of stocks) {
-            const { symbol, records } = stockData;
+        // Ultra-optimized processing function
+        try {
+            console.log(`🚀 Ultra-optimized processing for ${stocks.length} stocks`);
             
-            if (!symbol || !records || !Array.isArray(records) || records.length === 0) {
-                errors.push(`Invalid stock data for symbol: ${symbol}`);
-                continue;
-            }
-            
-            try {
-                // Clean symbol name (remove .US suffix)
+            // Step 1: Prepare all symbols for bulk insert
+            const allSymbols = stocks.map(stockData => {
+                const { symbol, records } = stockData;
+                if (!symbol || !records || !Array.isArray(records) || records.length === 0) {
+                    return null;
+                }
                 const cleanSymbol = cleanSymbolName(symbol);
                 const finalSymbol = convertToUppercase ? cleanSymbol.toUpperCase() : cleanSymbol;
+                return { 
+                    symbol: finalSymbol, 
+                    records: records.filter(record => record.date && record.close && !isNaN(record.close)) 
+                };
+            }).filter(item => item !== null);
+            
+            console.log(`📊 Prepared ${allSymbols.length} valid symbols for processing`);
+            
+            // Step 2: Bulk insert all symbols at once (non-blocking)
+            if (allSymbols.length > 0) {
+                const symbolValues = allSymbols.map(s => [s.symbol, s.symbol, 'Unknown', 'Unknown', 'NASDAQ', 1]);
+                const symbolPlaceholders = symbolValues.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+                const flatSymbolValues = symbolValues.flat();
                 
-                // Check for duplicates if requested (optimized)
-                if (preventDuplicates) {
-                    const existingSymbol = await new Promise((resolve, reject) => {
-                        db.get('SELECT 1 FROM symbols WHERE symbol = ? LIMIT 1', [finalSymbol], (err, row) => {
-                            if (err) reject(err);
-                            else resolve(row);
+                db.run(`
+                    INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active)
+                    VALUES ${symbolPlaceholders}
+                `, flatSymbolValues, (err) => {
+                    if (err) {
+                        console.error('❌ Error bulk inserting symbols:', err);
+                    } else {
+                        console.log(`✅ Bulk inserted ${allSymbols.length} symbols`);
+                    }
+                });
+            }
+            
+            // Step 3: Prepare all price records for ultra-bulk insert
+            const allPriceRecords = [];
+            let totalRecords = 0;
+            
+            allSymbols.forEach(({ symbol, records }) => {
+                records.forEach(record => {
+                    allPriceRecords.push([symbol, record.date, record.open, record.high, record.low, record.close, record.volume]);
+                });
+                totalRecords += records.length;
+            });
+            
+            console.log(`📈 Prepared ${totalRecords} price records for ultra-bulk insert`);
+            
+            // Step 4: Ultra-bulk insert all price records in optimal chunks
+            if (allPriceRecords.length > 0) {
+                const chunkSize = 500; // Increased chunk size for better performance
+                let recordsInserted = 0;
+                
+                for (let i = 0; i < allPriceRecords.length; i += chunkSize) {
+                    const chunk = allPriceRecords.slice(i, i + chunkSize);
+                    const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+                    const values = chunk.flat();
+                    
+                    await new Promise((resolve, reject) => {
+                        db.run(`
+                            INSERT INTO historical_prices (symbol, date, open, high, low, close, volume)
+                            VALUES ${placeholders}
+                        `, values, function(err) {
+                            if (err) {
+                                console.error(`❌ Error inserting price chunk ${Math.floor(i/chunkSize) + 1}:`, err);
+                                reject(err);
+                            } else {
+                                recordsInserted += this.changes || 0;
+                                resolve();
+                            }
                         });
                     });
                     
-                    if (existingSymbol) {
-                        console.log(`Skipping duplicate symbol: ${finalSymbol}`);
-                        continue;
+                    // Progress logging
+                    if ((i + chunkSize) % (chunkSize * 10) === 0 || i + chunkSize >= allPriceRecords.length) {
+                        console.log(`✅ Inserted ${Math.min(i + chunkSize, allPriceRecords.length)}/${allPriceRecords.length} price records`);
                     }
                 }
                 
-                // Insert symbol into symbols table (non-blocking)
-                db.run(`
-                    INSERT OR IGNORE INTO symbols (symbol, name, sector, market_cap, exchange, is_active)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                `, [finalSymbol, finalSymbol, 'Unknown', 'Unknown', 'NASDAQ', 1], (err) => {
-                    if (err) {
-                        console.error(`Error inserting symbol ${finalSymbol}:`, err);
-                    }
-                });
+                totalRecordsAdded = recordsInserted;
+            }
+            
+            // Step 5: Bulk update data freshness for all symbols
+            if (allSymbols.length > 0) {
+                const freshnessValues = allSymbols.map(s => [s.symbol, 'active', 0]);
+                const freshnessPlaceholders = freshnessValues.map(() => '(?, CURRENT_TIMESTAMP, ?, ?)').join(', ');
+                const flatFreshnessValues = freshnessValues.flat();
                 
-                // Insert price data using chunked bulk insert (handles SQLite parameter limit)
-                const validRecords = records.filter(record => record.date && record.close && !isNaN(record.close));
-                
-                if (validRecords.length > 0) {
-                    // SQLite has a limit of 999 parameters per query, so we need to chunk
-                    const chunkSize = 140; // 140 records * 7 parameters = 980 parameters (under limit)
-                    let recordsInserted = 0;
-                    
-                    for (let i = 0; i < validRecords.length; i += chunkSize) {
-                        const chunk = validRecords.slice(i, i + chunkSize);
-                        const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
-                        const values = chunk.flatMap(record => [
-                            finalSymbol,
-                            record.date,
-                            record.open,
-                            record.high,
-                            record.low,
-                            record.close,
-                            record.volume
-                        ]);
-                        
-                        await new Promise((resolve, reject) => {
-                            db.run(`
-                                INSERT INTO historical_prices (symbol, date, open, high, low, close, volume)
-                                VALUES ${placeholders}
-                            `, values, function(err) {
-                                if (err) {
-                                    console.error(`Error inserting records for ${finalSymbol}:`, err);
-                                    reject(err);
-                                } else {
-                                    recordsInserted += this.changes || 0;
-                                    resolve();
-                                }
-                            });
-                        });
-                    }
-                    
-                    totalRecordsAdded += recordsInserted;
-                }
-                
-                // Update data freshness (non-blocking)
                 db.run(`
                     INSERT OR REPLACE INTO data_freshness (symbol, last_updated, status, error_count)
-                    VALUES (?, CURRENT_TIMESTAMP, 'active', 0)
-                `, [finalSymbol], (err) => {
+                    VALUES ${freshnessPlaceholders}
+                `, flatFreshnessValues, (err) => {
                     if (err) {
-                        console.error(`Error updating data freshness for ${finalSymbol}:`, err);
+                        console.error('❌ Error bulk updating data freshness:', err);
+                    } else {
+                        console.log(`✅ Bulk updated data freshness for ${allSymbols.length} symbols`);
                     }
                 });
-                
-                totalSymbolsAdded++;
-                console.log(`✓ Processed ${finalSymbol}: ${validRecords.length} records`);
-                
-            } catch (error) {
-                const errorMsg = `Error processing ${symbol}: ${error.message}`;
-                errors.push(errorMsg);
-                console.error(errorMsg);
             }
+            
+            totalSymbolsAdded = allSymbols.length;
+            
+            console.log(`🎉 Ultra-optimized processing completed: ${totalSymbolsAdded} symbols, ${totalRecordsAdded} records`);
+            
+        } catch (error) {
+            console.error('❌ Error in ultra-optimized processing:', error);
+            throw error;
         }
         
         const folderInfo = folderName ? `from folder "${folderName}"` : 'from structured data';

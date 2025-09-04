@@ -61,77 +61,113 @@ const cleanSymbolName = (symbol: string): string => {
   return symbol.replace(/\.US$/i, '');
 };
 
-// Extract stock data from CSV files and convert to JSON
-const extractStockDataFromFiles = async (files: File[]): Promise<StockData[]> => {
+// Extract stock data from CSV files and convert to JSON with multiprocessing
+const extractStockDataFromFiles = async (files: File[], onProgress?: (progress: number) => void): Promise<StockData[]> => {
   const results: StockData[] = [];
   const errors: string[] = [];
   
-  console.log(`Extracting data from ${files.length} files...`);
+  console.log(`Extracting data from ${files.length} files with multiprocessing...`);
   
-  for (const file of files) {
-    try {
-      const text = await file.text();
-      const lines = text.trim().split('\n');
-      
-      if (lines.length < 2) {
-        errors.push(`${file.name}: File too short (need at least header + 1 data row)`);
-        continue;
-      }
-      
-      const headers = lines[0].split(',');
-      
-      // Find column indices
-      const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
-      const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
-      const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
-      const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
-      const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
-      const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
-      
-      if (dateIndex === -1 || closeIndex === -1) {
-        errors.push(`${file.name}: Missing required columns (date, close)`);
-        continue;
-      }
-      
-      // Extract symbol from filename
-      let symbol = file.name.replace(/\.[^/.]+$/, ''); // Remove file extension
-      symbol = cleanSymbolName(symbol).toUpperCase();
-      
-      // Parse data rows
-      const records = [];
-      let validRows = 0;
-      
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line || line.includes('N/A')) continue;
+  // Process files in parallel batches for better performance
+  const batchSize = 20; // Process 20 files simultaneously
+  const batches = [];
+  
+  for (let i = 0; i < files.length; i += batchSize) {
+    batches.push(files.slice(i, i + batchSize));
+  }
+  
+  console.log(`Processing ${files.length} files in ${batches.length} batches of ${batchSize} files each`);
+  
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    console.log(`Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`);
+    
+    // Process batch in parallel using Promise.all
+    const batchPromises = batch.map(async (file) => {
+      try {
+        const text = await file.text();
+        const lines = text.trim().split('\n');
         
-        const values = line.split(',');
-        if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
-          const close = parseFloat(values[closeIndex]);
-          if (!isNaN(close) && close > 0) {
-            records.push({
-              date: values[dateIndex],
-              open: parseFloat(values[openIndex]) || null,
-              high: parseFloat(values[highIndex]) || null,
-              low: parseFloat(values[lowIndex]) || null,
-              close: close,
-              volume: parseInt(values[volumeIndex]) || null
-            });
-            validRows++;
+        if (lines.length < 2) {
+          return { error: `${file.name}: File too short (need at least header + 1 data row)` };
+        }
+        
+        const headers = lines[0].split(',');
+        
+        // Find column indices
+        const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
+        const openIndex = headers.findIndex(h => h.toLowerCase().includes('open'));
+        const highIndex = headers.findIndex(h => h.toLowerCase().includes('high'));
+        const lowIndex = headers.findIndex(h => h.toLowerCase().includes('low'));
+        const closeIndex = headers.findIndex(h => h.toLowerCase().includes('close'));
+        const volumeIndex = headers.findIndex(h => h.toLowerCase().includes('vol'));
+        
+        if (dateIndex === -1 || closeIndex === -1) {
+          return { error: `${file.name}: Missing required columns (date, close)` };
+        }
+        
+        // Extract symbol from filename
+        let symbol = file.name.replace(/\.[^/.]+$/, ''); // Remove file extension
+        symbol = cleanSymbolName(symbol).toUpperCase();
+        
+        // Parse data rows
+        const records = [];
+        let validRows = 0;
+        
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line || line.includes('N/A')) continue;
+          
+          const values = line.split(',');
+          if (values.length >= Math.max(dateIndex, openIndex, highIndex, lowIndex, closeIndex, volumeIndex) + 1) {
+            const close = parseFloat(values[closeIndex]);
+            if (!isNaN(close) && close > 0) {
+              records.push({
+                date: values[dateIndex],
+                open: parseFloat(values[openIndex]) || null,
+                high: parseFloat(values[highIndex]) || null,
+                low: parseFloat(values[lowIndex]) || null,
+                close: close,
+                volume: parseInt(values[volumeIndex]) || null
+              });
+              validRows++;
+            }
           }
         }
+        
+        if (records.length > 0) {
+          console.log(`✓ Extracted ${validRows} records for ${symbol}`);
+          return { success: { symbol, records } };
+        } else {
+          return { error: `${file.name}: No valid data rows found` };
+        }
+        
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        return { error: `${file.name}: ${errorMsg}` };
       }
-      
-      if (records.length > 0) {
-        results.push({ symbol, records });
-        console.log(`✓ Extracted ${validRows} records for ${symbol}`);
-      } else {
-        errors.push(`${file.name}: No valid data rows found`);
+    });
+    
+    // Wait for all files in the batch to complete
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Process batch results
+    for (const result of batchResults) {
+      if (result.error) {
+        errors.push(result.error);
+      } else if (result.success) {
+        results.push(result.success);
       }
-      
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`${file.name}: ${errorMsg}`);
+    }
+    
+    // Update progress
+    const processedFiles = (batchIndex + 1) * batchSize;
+    const progress = Math.min((processedFiles / files.length) * 100, 100);
+    console.log(`Batch ${batchIndex + 1} completed. Progress: ${progress.toFixed(1)}%`);
+    
+    // Call progress callback if provided
+    if (onProgress) {
+      onProgress(progress);
     }
   }
   
@@ -278,17 +314,22 @@ export default function Admin() {
       return
     }
     
-    // Extract data and upload as JSON for better efficiency
-    console.log(`Extracting data from ${csvFiles.length} CSV/TXT files...`)
-    addAction('populate', 'pending', `Extracting data from ${csvFiles.length} files...`)
+    // Extract data and upload as JSON for better efficiency with multiprocessing
+    console.log(`Extracting data from ${csvFiles.length} CSV/TXT files with multiprocessing...`)
+    addAction('populate', 'pending', `Extracting data from ${csvFiles.length} files with multiprocessing...`)
     
     try {
       setIsLoading(true)
-      setUploadProgress(10)
-      setProcessingStatus('Extracting data from files...')
+      setUploadProgress(5)
+      setProcessingStatus('Extracting data from files with multiprocessing...')
       
-      // Extract stock data from files
-      const stockData = await extractStockDataFromFiles(csvFiles)
+      // Extract stock data from files with multiprocessing
+      const stockData = await extractStockDataFromFiles(csvFiles, (progress) => {
+        // Update progress from 5% to 25% during extraction
+        const extractionProgress = 5 + (progress * 0.2); // 5% to 25%
+        setUploadProgress(extractionProgress);
+        setProcessingStatus(`Extracting data: ${progress.toFixed(1)}% complete`);
+      })
       
       if (stockData.length === 0) {
         addAction('populate', 'error', 'No valid stock data found in the uploaded files')
@@ -819,8 +860,8 @@ export default function Admin() {
     })
   }, [])
   
-  // Process a single file and upload its data
-  const processAndUploadFile = useCallback(async (file: File, metadata: UploadMetadata): Promise<FileProcessResult> => {
+  // Process a single file and return stock data (without uploading)
+  const processFile = useCallback(async (file: File): Promise<{ symbol: string; records: number; success: boolean; error?: string; stockData?: StockData }> => {
     const startTime = Date.now()
     
     try {
@@ -894,17 +935,14 @@ export default function Admin() {
         }
       }
       
-      // Upload the file data (without fetching stats)
-      const stockData: StockData = { symbol, records }
-      await uploadStructuredDataWithoutStats([stockData], metadata.folderName)
-      
       const processingTime = Date.now() - startTime
       const speed = Math.round(records.length / (processingTime / 1000))
       
       return {
         symbol,
         records: records.length,
-        success: true
+        success: true,
+        stockData: { symbol, records }
       }
       
     } catch (error) {
@@ -921,6 +959,10 @@ export default function Admin() {
   // Upload structured data without fetching database stats (for performance)
   const uploadStructuredDataWithoutStats = useCallback(async (stockData: StockData[], folderName: string): Promise<void> => {
     try {
+      // Add request timeout to prevent stuck requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       const response = await fetch('/api/admin/upload-structured-data', {
         method: 'POST',
         headers: {
@@ -931,8 +973,11 @@ export default function Admin() {
           convertToUppercase: true,
           preventDuplicates: false,
           folderName: folderName
-        })
+        }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -946,6 +991,9 @@ export default function Admin() {
       
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMsg.includes('aborted')) {
+        throw new Error(`Upload timeout - request took too long`);
+      }
       throw new Error(`Failed to upload structured data: ${errorMsg}`);
     }
   }, [])
@@ -989,7 +1037,7 @@ export default function Admin() {
       const completedFiles: string[] = []
       
       // Process files in parallel batches for better performance
-      const batchSize = 10; // Process 10 files simultaneously
+      const batchSize = 200; // Increased for maximum throughput
       const batches = [];
       
       for (let i = 0; i < files.length; i += batchSize) {
@@ -1013,7 +1061,7 @@ export default function Admin() {
         
         setProcessingStatus(`Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`)
         
-        // Process batch in parallel
+        // Process batch in parallel (extract data only)
         const batchPromises = batch.map(async (file, fileIndex) => {
           const globalIndex = batchIndex * batchSize + fileIndex;
           
@@ -1023,27 +1071,45 @@ export default function Admin() {
             progress: Math.round((globalIndex / files.length) * 100)
           }))
           
-          return await processAndUploadFile(file, metadata);
+          return await processFile(file);
         });
         
         // Wait for all files in batch to complete
         const batchResults = await Promise.allSettled(batchPromises);
+        
+        // Collect all successful stock data for batch upload
+        const batchStockData: StockData[] = []
+        let batchRecords = 0
         
         // Process results
         batchResults.forEach((result, fileIndex) => {
           const file = batch[fileIndex];
           const globalIndex = batchIndex * batchSize + fileIndex;
           
-          if (result.status === 'fulfilled' && result.value.success) {
+          if (result.status === 'fulfilled' && result.value.success && result.value.stockData) {
             processedFiles++
             processedRecords += result.value.records
             completedFiles.push(file.name)
             totalRecords += result.value.records
+            batchRecords += result.value.records
+            batchStockData.push(result.value.stockData)
           } else {
             const error = result.status === 'rejected' ? result.reason : result.value.error;
             failedFiles.push(`${file.name}: ${error}`)
           }
         });
+        
+        // Upload batch as single JSON if we have data
+        if (batchStockData.length > 0) {
+          console.log(`Uploading batch ${batchIndex + 1} with ${batchStockData.length} symbols and ${batchRecords} records`)
+          await uploadStructuredDataWithoutStats(batchStockData, metadata.folderName)
+        }
+        
+        // Add delay between batches to allow database to catch up
+        if (batchIndex < batches.length - 1) {
+          console.log(`Batch ${batchIndex + 1} completed. Waiting 100ms before next batch...`);
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
         
         // Update speed calculation
         const elapsedTime = (Date.now() - metadata.startTime.getTime()) / 1000
@@ -1144,7 +1210,7 @@ export default function Admin() {
       addAction('populate', 'error', `Streaming upload failed: ${errorMsg}`)
       setProcessingStatus('Upload failed')
     }
-  }, [processAndUploadFile, saveUploadMetadata, addAction, fetchDatabaseStats])
+  }, [processFile, uploadStructuredDataWithoutStats, saveUploadMetadata, addAction, fetchDatabaseStats])
   
   // Pause streaming upload
   const pauseStreamingUpload = useCallback(() => {

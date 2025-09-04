@@ -5,6 +5,7 @@ import { useThreshold } from '../contexts/ThresholdContext'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from 'recharts'
 import Cycles from './Cycles'
 import Simulation from './Simulation'
+import { formatDateForChart } from '../utils/dateUtils'
 
 
 interface NASDAQSymbol {
@@ -146,7 +147,7 @@ export default function Dashboard() {
             changePercent: changePercent,
             volume: latest.volume || 0,
             dataPoints: data.data.length,
-            dateRange: `${new Date(earliest.date).toLocaleDateString()} - ${new Date(latest.date).toLocaleDateString()}`
+            dateRange: `${formatDateForChart(earliest.date)} - ${formatDateForChart(latest.date)}`
           })
         }
       } else {
@@ -305,7 +306,7 @@ export default function Dashboard() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                       <XAxis 
                         dataKey="date" 
-                        tickFormatter={(value) => new Date(value).toLocaleDateString()}
+                        tickFormatter={(value) => formatDateForChart(value)}
                         stroke="#6b7280"
                       />
                       <YAxis 
@@ -319,7 +320,7 @@ export default function Dashboard() {
                             const formattedValue = typeof value === 'number' ? value.toFixed(2) : String(value);
                             return (
                               <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-                                <p className="font-medium text-gray-900">{new Date(label).toLocaleDateString()}</p>
+                                <p className="font-medium text-gray-900">{formatDateForChart(label)}</p>
                                 <p className="text-blue-600">{selectedSymbol}: ${formattedValue}</p>
                               </div>
                             )

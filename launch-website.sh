@@ -32,13 +32,101 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to check if Docker is running
+# Function to check if Docker is running and start it if needed
 check_docker() {
     if ! docker info > /dev/null 2>&1; then
-        print_error "Docker is not running. Please start Docker Desktop first."
-        exit 1
+        print_warning "Docker is not running. Attempting to start Docker Desktop..."
+        
+        # Try to start Docker Desktop based on the operating system
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            if command -v open &> /dev/null; then
+                print_status "Starting Docker Desktop on macOS..."
+                open -a Docker
+                
+                # Wait for Docker to start
+                local max_attempts=60
+                local attempt=1
+                
+                while [ $attempt -le $max_attempts ]; do
+                    if docker info > /dev/null 2>&1; then
+                        print_success "Docker Desktop started successfully"
+                        return 0
+                    fi
+                    
+                    if [ $attempt -eq $max_attempts ]; then
+                        print_error "Docker Desktop failed to start after $max_attempts attempts"
+                        print_error "Please start Docker Desktop manually and try again"
+                        exit 1
+                    fi
+                    
+                    print_status "Waiting for Docker to start... (attempt $attempt/$max_attempts)"
+                    sleep 2
+                    ((attempt++))
+                done
+            else
+                print_error "Could not start Docker Desktop automatically"
+                print_error "Please start Docker Desktop manually and try again"
+                exit 1
+            fi
+        elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            # Linux
+            print_status "Attempting to start Docker service on Linux..."
+            if command -v systemctl &> /dev/null; then
+                sudo systemctl start docker
+                sleep 3
+                if docker info > /dev/null 2>&1; then
+                    print_success "Docker service started successfully"
+                    return 0
+                else
+                    print_error "Failed to start Docker service"
+                    print_error "Please start Docker manually and try again"
+                    exit 1
+                fi
+            else
+                print_error "Could not start Docker service automatically"
+                print_error "Please start Docker manually and try again"
+                exit 1
+            fi
+        elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]]; then
+            # Windows
+            print_status "Attempting to start Docker Desktop on Windows..."
+            if command -v start &> /dev/null; then
+                start "Docker Desktop"
+                
+                # Wait for Docker to start
+                local max_attempts=60
+                local attempt=1
+                
+                while [ $attempt -le $max_attempts ]; do
+                    if docker info > /dev/null 2>&1; then
+                        print_success "Docker Desktop started successfully"
+                        return 0
+                    fi
+                    
+                    if [ $attempt -eq $max_attempts ]; then
+                        print_error "Docker Desktop failed to start after $max_attempts attempts"
+                        print_error "Please start Docker Desktop manually and try again"
+                        exit 1
+                    fi
+                    
+                    print_status "Waiting for Docker to start... (attempt $attempt/$max_attempts)"
+                    sleep 2
+                    ((attempt++))
+                done
+            else
+                print_error "Could not start Docker Desktop automatically"
+                print_error "Please start Docker Desktop manually and try again"
+                exit 1
+            fi
+        else
+            print_error "Unsupported operating system: $OSTYPE"
+            print_error "Please start Docker manually and try again"
+            exit 1
+        fi
+    else
+        print_success "Docker is running"
     fi
-    print_success "Docker is running"
 }
 
 # Function to check if Docker Compose is available
@@ -214,8 +302,14 @@ show_usage() {
     echo "  -s, --status   Show service status after starting"
     echo "  -a, --all      Clean, rebuild, start, show status, and open browser"
     echo ""
+    echo "Features:"
+    echo "  🐳 Auto-starts Docker Desktop if not running"
+    echo "  🔄 Automatic service health checks"
+    echo "  🧹 Cleanup and rebuild options"
+    echo "  🌐 Browser auto-opening"
+    echo ""
     echo "Examples:"
-    echo "  $0              # Basic launch"
+    echo "  $0              # Basic launch (auto-starts Docker if needed)"
     echo "  $0 -c          # Clean and launch"
     echo "  $0 -d          # Deep cleanup and launch"
     echo "  $0 -r          # Rebuild and launch"
@@ -337,6 +431,7 @@ main() {
     echo "  • Rebuild & restart: $0 -r"
     echo ""
     echo "💡 Tip: Use '$0 -a' for full launch with rebuild and browser opening!"
+    echo "🐳 Docker auto-start: The script will automatically start Docker if needed!"
 }
 
 # Run main function with all arguments
